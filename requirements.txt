@@ -1,0 +1,30 @@
+# === Core Polymarket ===
+py-clob-client>=0.34.0
+httpx>=0.25.0
+requests>=2.31.0
+websockets>=13.0.0
+
+# === Weather & Meteorology ===
+python-metar>=1.4.0
+metpy>=1.5.1
+scipy>=1.11.0
+pandas>=2.1.4
+numpy>=1.26.0
+
+# === Scheduling & Async ===
+apscheduler>=3.10.4
+
+# === Database ===
+sqlalchemy>=2.0.25
+alembic>=1.13.1
+
+# === Config & Env ===
+python-dotenv>=1.0.1
+pydantic>=2.6.1
+pydantic-settings>=2.1.0
+
+# === Telegram Bot ===
+python-telegram-bot>=20.7
+
+# === Logging ===
+loguru>=0.7.2

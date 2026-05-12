@@ -1,0 +1,347 @@
+{
+  "city_name": "Madrid",
+  "icao": "LEMD",
+  "profile_version": "1.0",
+  "timezone": "Europe/Madrid",
+  "station": {
+    "latitude": 40.4722,
+    "longitude": -3.5608
+  },
+  "market_scope": {
+    "market_type": "highest_temperature_today",
+    "resolution_source": "Station-linked source / Weather Underground style whole-degree daily high",
+    "resolution_rounding_rule": "whole_degree_celsius",
+    "analysis_scope": "same_day_only"
+  },
+  "models": {
+    "primary_model": "MODEL_CONSENSUS",
+    "secondary_model": "ECMWF_GFS_SPLIT",
+    "ensemble_role": "confirmation_and_realistic_upper_bound",
+    "historical_window": {
+      "start_date": "2026-03-10",
+      "end_date": "2026-05-06",
+      "days_used": 58
+    },
+    "performance": {
+      "model_consensus": {
+        "avg_error_c": -0.12,
+        "median_error_c": -0.08,
+        "mae_c": 0.71
+      },
+      "ecmwf": {
+        "avg_error_c": 0.08,
+        "median_error_c": 0.25,
+        "mae_c": 0.81,
+        "avg_10utc_bias_vs_obs_c": -0.24,
+        "clear_avg_error_c": 0.35,
+        "mixed_avg_error_c": -0.38,
+        "cloudy_avg_error_c": 0.32,
+        "rainy_avg_error_c": -2.3
+      },
+      "gfs": {
+        "avg_error_c": -0.33,
+        "median_error_c": -0.6,
+        "mae_c": 0.89,
+        "avg_10utc_bias_vs_obs_c": -0.01,
+        "clear_avg_error_c": -0.33,
+        "mixed_avg_error_c": -0.53,
+        "cloudy_avg_error_c": 0.08,
+        "rainy_avg_error_c": -0.65
+      },
+      "ensemble": {
+        "coverage_note": "Individual ensemble members are available only for the final trailing days in this archive.",
+        "available_days": 4,
+        "recent_member_mean_error_note": "Recent ensemble mean daily max was slightly cool on May 4 and close on May 5-6.",
+        "recent_mean_max_examples_c": {
+          "2026-05-04": 19.46,
+          "2026-05-05": 19.41,
+          "2026-05-06": 20.53
+        },
+        "recent_p75_examples_c": {
+          "2026-05-04": 19.78,
+          "2026-05-05": 19.7,
+          "2026-05-06": 20.8
+        },
+        "recent_p85_examples_c": {
+          "2026-05-04": 19.96,
+          "2026-05-05": 19.8,
+          "2026-05-06": 20.9
+        }
+      }
+    }
+  },
+  "historical_summary": {
+    "avg_actual_max_c": 20.79,
+    "median_actual_max_c": 21,
+    "avg_diurnal_range_c": 13.81,
+    "type_counts": {
+      "clear": 42,
+      "mixed": 6,
+      "cloudy": 6,
+      "rainy": 4
+    },
+    "max_hour_distribution_local": {
+      "00": 2,
+      "12": 1,
+      "14": 6,
+      "15": 10,
+      "16": 23,
+      "17": 11,
+      "18": 5
+    },
+    "gain_after_noon_distribution_c": {
+      "0": 1,
+      "1": 1,
+      "2": 2,
+      "3": 7,
+      "4": 16,
+      "5": 12,
+      "6": 3,
+      "7": 1,
+      "8": 1,
+      "10": 1
+    }
+  },
+  "day_regimes": {
+    "clear": {
+      "detection": {
+        "morning_window_local": [8, 11],
+        "min_clear_observations": 4,
+        "max_cloudy_observations": 2,
+        "max_rain_observations": 0,
+        "max_fog_observations": 1
+      },
+      "behavior": {
+        "avg_max_c": 21.79,
+        "avg_diurnal_range_c": 15.76,
+        "avg_gain_after_10utc_c": 8.88,
+        "avg_gain_after_noon_c": 4.5,
+        "avg_peak_hour_local": 16.02
+      },
+      "adjustments": {
+        "projected_max_c": 0.0
+      }
+    },
+    "mixed": {
+      "detection": {
+        "rule": "Default regime when the day is neither clearly free-heating nor clearly capped by cloud/rain."
+      },
+      "behavior": {
+        "avg_max_c": 18.83,
+        "avg_diurnal_range_c": 10.17,
+        "avg_gain_after_10utc_c": 5.5,
+        "avg_gain_after_noon_c": 3.17,
+        "avg_peak_hour_local": 13.17
+      },
+      "adjustments": {
+        "projected_max_c": 0.0
+      }
+    },
+    "cloudy": {
+      "detection": {
+        "morning_window_local": [8, 11],
+        "min_cloudy_observations": 4,
+        "rain_not_required": true
+      },
+      "behavior": {
+        "avg_max_c": 16.83,
+        "avg_diurnal_range_c": 7.83,
+        "avg_gain_after_10utc_c": 4.83,
+        "avg_gain_after_noon_c": 2.67,
+        "avg_peak_hour_local": 13.17
+      },
+      "adjustments": {
+        "projected_max_c": -0.25
+      }
+    },
+    "rainy": {
+      "detection": {
+        "day_window_local": [8, 14],
+        "min_rain_observations": 2,
+        "note": "Small sample; rain in this archive did not necessarily cap the afternoon high."
+      },
+      "behavior": {
+        "avg_max_c": 19.25,
+        "avg_diurnal_range_c": 7.75,
+        "avg_gain_after_10utc_c": 6.25,
+        "avg_gain_after_noon_c": 2.75,
+        "avg_peak_hour_local": 15.0
+      },
+      "adjustments": {
+        "projected_max_c": 0.5
+      }
+    },
+    "foggy": {
+      "detection": {
+        "morning_window_local": [8, 11],
+        "min_fog_observations": 2,
+        "fog_tokens": ["BR", "FG", "HZ", "MIFG"]
+      },
+      "behavior": {
+      "sample_note": "No material foggy sample in this 58-day Madrid archive."
+      },
+      "adjustments": {
+        "projected_max_c": 0.0
+      }
+    }
+  },
+  "timing_rules": {
+    "primary_peak_window_utc": [15, 18],
+    "peak_center_window_utc": [16, 17],
+    "typical_post_noon_upside_c": [3, 5],
+    "rare_post_noon_upside_c": 6,
+    "tail_post_noon_upside_c": 8,
+    "path_driven_start_hour_local": 16,
+    "late_day_decay_hour_utc": 17,
+    "harder_decay_hour_utc": 18
+  },
+  "scoring_model": {
+    "base_rule": {
+      "source": "MODEL_CONSENSUS_MAX",
+      "operation": "round_to_nearest_integer"
+    },
+    "adjustments": [
+      {
+        "name": "mixed_regime",
+        "condition": "day_regime == mixed",
+        "delta_c": 0.0,
+        "reason": "Mixed Madrid days still heat after noon, but the expanded sample no longer supports an automatic upward adjustment."
+      },
+      {
+        "name": "cloudy_regime",
+        "condition": "day_regime == cloudy",
+        "delta_c": -0.25,
+        "reason": "Cloudy Madrid days reduced upside, but did not eliminate afternoon heating."
+      },
+      {
+        "name": "rainy_regime",
+        "condition": "day_regime == rainy",
+        "delta_c": 0.5,
+        "reason": "Rainy Madrid days were still underpredicted by models, but the expanded sample supports a smaller adjustment."
+      },
+      {
+        "name": "obs10_above_ecmwf10",
+        "condition": "obs_10utc >= ecmwf_10utc + 1.0",
+        "delta_c": 0.5,
+        "reason": "Observed morning warmth versus ECMWF supports the upper half of the range."
+      },
+      {
+        "name": "obs10_below_ecmwf10",
+        "condition": "obs_10utc <= ecmwf_10utc - 1.0",
+        "delta_c": -0.5,
+        "reason": "Observed morning lag versus ECMWF modestly reduces the final high."
+      }
+    ],
+    "final_rule": {
+      "operation": "round(base_max + total_adjustment)"
+    }
+  },
+  "intraday_path_rules": {
+    "max_by_noon_rule": "Do not treat noon as close to resolution in Madrid; 3-5C of additional upside after noon is normal.",
+    "late_heating_rule": {
+      "condition": "clear_or_mixed_day and time < 16 local",
+      "effect": "Keep model-centered upper buckets alive unless METAR path is dramatically colder than model."
+    },
+    "rain_after_high_rule": {
+      "condition": "new_high_printed after 16 local and subsequent rain_or_temp_drop",
+      "effect": "Start locking the current high as primary exact bucket."
+    },
+    "sticky_high_rule": {
+      "condition": "same_high_printed_multiple_times after 16 local",
+      "effect": "Increase confidence that the current high is the final high."
+    },
+    "no_new_high_after_17utc_rule": {
+      "condition": "time >= 17 local and no new high for at least one hour",
+      "effect": "Discount the next higher bucket aggressively."
+    }
+  },
+  "fair_value_templates": {
+    "pre_noon": {
+      "clear": {
+        "lower": 0.25,
+        "primary": 0.5,
+        "upper": 0.25
+      },
+      "mixed": {
+        "lower": 0.2,
+        "primary": 0.5,
+        "upper": 0.3
+      },
+      "cloudy": {
+        "lower": 0.4,
+        "primary": 0.45,
+        "upper": 0.15
+      },
+      "rainy": {
+        "lower": 0.15,
+        "primary": 0.45,
+        "upper": 0.4
+      },
+      "foggy": {
+        "lower": 0.25,
+        "primary": 0.5,
+        "upper": 0.25
+      }
+    },
+    "post_noon_default": {
+      "lower": 0.05,
+      "primary": 0.73,
+      "upper": 0.22
+    },
+    "post_noon_cooling": {
+      "lower": 0.03,
+      "primary": 0.85,
+      "upper": 0.12
+    },
+    "late_day_cooling": {
+      "lower": 0.02,
+      "primary": 0.92,
+      "upper": 0.06
+    }
+  },
+  "trading_rules": {
+    "min_edge_to_open_yes": 0.1,
+    "min_edge_to_open_no": 0.1,
+    "min_edge_to_hold": 0.03,
+    "max_positions": 3,
+    "trade_size_policy": {
+      "early_morning_multiplier": 0.25,
+      "after_10utc_multiplier": 0.5,
+      "confirmed_scenario_multiplier": 1.0
+    },
+    "post_14utc_market_scope": "Do not narrow to current high at 14 local; Madrid usually keeps heating into 16-17 local.",
+    "skip_condition": "If absolute edge is below threshold, do not trade."
+  },
+  "exit_rules": {
+    "edge_compression": {
+      "condition": "edge < 0.03",
+      "action": "close_or_reduce"
+    },
+    "scenario_invalidation": {
+      "condition": "fresh_METAR moves at least 1C against the scenario after 16 local",
+      "action": "reduce_or_close"
+    },
+    "path_break": {
+      "condition": "expected strong afternoon heating fails by 16-17 local",
+      "action": "close_higher_bucket_positions"
+    },
+    "post_peak_confirmation": {
+      "condition": "current_high confirmed by late-day cooling after 16 local",
+      "action": "hold_or_add_to_current_exact_high"
+    }
+  },
+  "warnings": [
+    "Do not apply Paris/London noon-resolution logic to Madrid; noon often leaves 3-5C of upside.",
+    "Madrid peaks late in this sample, most often around 16-17 local.",
+    "Clear days dominate the data and have very large diurnal ranges.",
+    "Rainy sample is small and counterintuitive; rain did not reliably suppress the final high in this archive.",
+    "Use ensemble percentile logic as a confirmation layer because individual ensemble coverage is only available on the trailing days."
+  ],
+  "operational_summary": {
+    "base_model": "MODEL_CONSENSUS",
+    "primary_city_filter": "Whether the day can maintain strong afternoon heating into 16-17 local",
+    "most_important_hours_utc": [10, 14, 16, 17],
+    "main_post_noon_rule": "Madrid usually still has several degrees of upside after noon.",
+    "main_post_peak_rule": "Only after 16 local should the bot strongly favor the current observed high over model-centered buckets."
+  }
+}

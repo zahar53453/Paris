@@ -1,0 +1,365 @@
+{
+  "city_name": "Munich",
+  "icao": "EDDM",
+  "profile_version": "1.0",
+  "timezone": "Europe/Berlin",
+  "station": {
+    "latitude": 48.25,
+    "longitude": 11.75
+  },
+  "market_scope": {
+    "market_type": "highest_temperature_today",
+    "resolution_source": "Station-linked source / Weather Underground style whole-degree daily high",
+    "resolution_rounding_rule": "whole_degree_celsius",
+    "analysis_scope": "same_day_only"
+  },
+  "models": {
+    "primary_model": "ECMWF",
+    "secondary_model": "GFS",
+    "ensemble_role": "confirmation_and_realistic_upper_bound",
+    "historical_window": {
+      "start_date": "2026-03-27",
+      "end_date": "2026-05-10",
+      "days_used": 45,
+      "supporting_window_note": "The source file includes 57 deterministic days from 2026-03-15 to 2026-05-10; the last 45 days are used as the primary calibration window."
+    },
+    "performance": {
+      "ecmwf": {
+        "avg_error_c": -1.11,
+        "median_error_c": -1.2,
+        "mae_c": 1.24,
+        "avg_10local_bias_vs_obs_c": -2.06,
+        "clear_avg_error_c": -1.39,
+        "mixed_avg_error_c": -1.7,
+        "cloudy_avg_error_c": -0.23,
+        "rainy_avg_error_c": -0.53
+      },
+      "gfs": {
+        "avg_error_c": -1.51,
+        "median_error_c": -1.8,
+        "mae_c": 1.62,
+        "avg_10local_bias_vs_obs_c": -2.18,
+        "clear_avg_error_c": -1.74,
+        "mixed_avg_error_c": -0.9,
+        "cloudy_avg_error_c": -0.73,
+        "rainy_avg_error_c": -1.23
+      },
+      "model_consensus": {
+        "avg_error_c": -1.31,
+        "median_error_c": -1.55,
+        "mae_c": 1.4
+      },
+      "ensemble": {
+        "coverage_note": "Individual ensemble members are only available on the final trailing days in this archive and should be used as a confirmation layer rather than the sole base forecast.",
+        "available_days": 3,
+        "recent_mean_max_examples_c": {
+          "2026-05-09": 20.05,
+          "2026-05-10": 22.03,
+          "2026-05-11": 16.68
+        },
+        "recent_p75_examples_c": {
+          "2026-05-09": 20.2,
+          "2026-05-10": 22.3,
+          "2026-05-11": 16.9
+        },
+        "recent_p85_examples_c": {
+          "2026-05-09": 20.4,
+          "2026-05-10": 22.5,
+          "2026-05-11": 17.13
+        }
+      }
+    }
+  },
+  "historical_summary": {
+    "avg_actual_max_c": 16.13,
+    "median_actual_max_c": 17,
+    "avg_diurnal_range_c": 13.18,
+    "type_counts": {
+      "clear": 31,
+      "mixed": 1,
+      "cloudy": 6,
+      "rainy": 7
+    },
+    "max_hour_distribution_local": {
+      "00": 1,
+      "11": 1,
+      "12": 4,
+      "13": 4,
+      "14": 15,
+      "15": 14,
+      "16": 5,
+      "17": 1
+    },
+    "gain_after_noon_distribution_c": {
+      "0": 6,
+      "1": 5,
+      "2": 22,
+      "3": 11,
+      "4": 1
+    }
+  },
+  "day_regimes": {
+    "clear": {
+      "detection": {
+        "morning_window_local": [8, 11],
+        "min_clear_observations": 4,
+        "max_cloudy_observations": 2,
+        "max_rain_observations": 0,
+        "max_fog_observations": 1
+      },
+      "behavior": {
+        "avg_max_c": 18.52,
+        "avg_diurnal_range_c": 16.03,
+        "avg_gain_after_10local_c": 4.68,
+        "avg_gain_after_noon_c": 2.13,
+        "avg_peak_hour_local": 14.39
+      },
+      "adjustments": {
+        "projected_max_c": 1.0
+      }
+    },
+    "mixed": {
+      "detection": {
+        "rule": "Default regime when the day is neither clearly free-heating nor clearly capped by cloud, rain or fog."
+      },
+      "behavior": {
+        "avg_max_c": 7.0,
+        "avg_diurnal_range_c": 9.0,
+        "avg_gain_after_10local_c": 2.0,
+        "avg_gain_after_noon_c": 2.0,
+        "avg_peak_hour_local": 13.0,
+        "sample_note": "Only one mixed day appears in the primary 45-day window; do not overfit this regime."
+      },
+      "adjustments": {
+        "projected_max_c": 0.0
+      }
+    },
+    "cloudy": {
+      "detection": {
+        "morning_window_local": [8, 11],
+        "min_cloudy_observations": 4,
+        "rain_not_required": true
+      },
+      "behavior": {
+        "avg_max_c": 11.33,
+        "avg_diurnal_range_c": 7.17,
+        "avg_gain_after_10local_c": 3.0,
+        "avg_gain_after_noon_c": 1.5,
+        "avg_peak_hour_local": 14.17
+      },
+      "adjustments": {
+        "projected_max_c": -0.25
+      }
+    },
+    "rainy": {
+      "detection": {
+        "day_window_local": [8, 14],
+        "min_rain_observations": 2
+      },
+      "behavior": {
+        "avg_max_c": 11.0,
+        "avg_diurnal_range_c": 6.29,
+        "avg_gain_after_10local_c": 1.86,
+        "avg_gain_after_noon_c": 1.29,
+        "avg_peak_hour_local": 12.0
+      },
+      "adjustments": {
+        "projected_max_c": -0.5
+      }
+    },
+    "foggy": {
+      "detection": {
+        "morning_window_local": [8, 11],
+        "min_fog_observations": 2,
+        "fog_tokens": ["BR", "FG", "HZ", "MIFG"]
+      },
+      "behavior": {
+        "sample_note": "No material foggy sample appears in the spring primary window; treat fog as a modest heating cap until it clearly burns off."
+      },
+      "adjustments": {
+        "projected_max_c": -0.25
+      }
+    }
+  },
+  "timing_rules": {
+    "primary_peak_window_utc": [12, 15],
+    "peak_center_window_utc": [13, 14],
+    "typical_post_noon_upside_c": [1, 2],
+    "rare_post_noon_upside_c": 3,
+    "tail_post_noon_upside_c": 4,
+    "path_driven_start_hour_local": 14,
+    "late_day_decay_hour_utc": 15,
+    "harder_decay_hour_utc": 16
+  },
+  "scoring_model": {
+    "base_rule": {
+      "source": "ECMWF_DAILY_MAX",
+      "operation": "round_to_nearest_integer"
+    },
+    "adjustments": [
+      {
+        "name": "gfs_warmer_than_ecmwf",
+        "condition": "gfs_daily_max >= ecmwf_daily_max + 1.0",
+        "delta_c": 0.25,
+        "reason": "GFS can add a small upside check when it is materially warmer, but ECMWF remains the Munich base."
+      },
+      {
+        "name": "clear_regime",
+        "condition": "day_regime == clear",
+        "delta_c": 1.0,
+        "reason": "Clear Munich days strongly outperform raw model maxima and have large diurnal ranges."
+      },
+      {
+        "name": "cloudy_regime",
+        "condition": "day_regime == cloudy",
+        "delta_c": -0.25,
+        "reason": "Cloudy Munich days cap upside, but ECMWF is already less wrong in this regime."
+      },
+      {
+        "name": "rainy_regime",
+        "condition": "day_regime == rainy",
+        "delta_c": -0.5,
+        "reason": "Rainy Munich days peak earlier and leave limited afternoon recovery."
+      },
+      {
+        "name": "foggy_regime",
+        "condition": "day_regime == foggy",
+        "delta_c": -0.25,
+        "reason": "Morning fog is treated as a mild heating cap unless later METARs show clean clearing."
+      },
+      {
+        "name": "obs10_below_ecmwf10",
+        "condition": "obs_10local <= ecmwf_10local - 1.0",
+        "delta_c": -0.5,
+        "reason": "A true observed lag versus ECMWF is meaningful because ECMWF is already normally cold in Munich mornings."
+      },
+      {
+        "name": "noon_underperformance",
+        "condition": "local_hour >= 12 and max_by_noon <= provisional_target - 2.0",
+        "delta_c": -0.5,
+        "reason": "Munich can still add 1-2C after noon, so noon underperformance should be penalized, but less aggressively than in early-peaking cities."
+      },
+      {
+        "name": "after_14_no_new_high_and_cooling",
+        "condition": "current_hour >= 14 local and obs_current < obs_max_so_far",
+        "delta_c": -0.5,
+        "reason": "After Munich enters the 14-15 local peak zone, cooling should reduce higher buckets."
+      }
+    ],
+    "final_rule": {
+      "operation": "round(base_max + total_adjustment)"
+    }
+  },
+  "intraday_path_rules": {
+    "max_by_noon_rule": "Munich usually still has 1-2C of upside after noon; 3C is possible and 4C is rare.",
+    "morning_model_bias_rule": {
+      "condition": "observed_10local is warmer than ECMWF_10local",
+      "effect": "Do not automatically upgrade the final high; ECMWF is normally cold in Munich mornings."
+    },
+    "clear_day_heating_rule": {
+      "condition": "clear_day and time < 14 local",
+      "effect": "Keep the ECMWF bucket plus one degree alive unless METAR path or cloud development invalidates heating."
+    },
+    "rain_after_high_rule": {
+      "condition": "new_high_printed and subsequent_rain_or_temp_drop after 14 local",
+      "effect": "Start locking the current high as primary exact bucket and reduce higher buckets."
+    },
+    "sticky_high_rule": {
+      "condition": "same_high_printed_multiple_times after 14 local",
+      "effect": "Increase confidence that the current high is the final high."
+    },
+    "no_new_high_after_15local_rule": {
+      "condition": "time >= 15 local and no new high for at least one hour",
+      "effect": "Discount the next higher bucket aggressively."
+    }
+  },
+  "fair_value_templates": {
+    "pre_noon": {
+      "clear": {
+        "lower": 0.2,
+        "primary": 0.5,
+        "upper": 0.3
+      },
+      "mixed": {
+        "lower": 0.25,
+        "primary": 0.55,
+        "upper": 0.2
+      },
+      "cloudy": {
+        "lower": 0.35,
+        "primary": 0.5,
+        "upper": 0.15
+      },
+      "rainy": {
+        "lower": 0.45,
+        "primary": 0.45,
+        "upper": 0.1
+      },
+      "foggy": {
+        "lower": 0.35,
+        "primary": 0.5,
+        "upper": 0.15
+      }
+    },
+    "post_noon_default": {
+      "lower": 0.1,
+      "primary": 0.75,
+      "upper": 0.15
+    },
+    "post_noon_cooling": {
+      "lower": 0.05,
+      "primary": 0.85,
+      "upper": 0.1
+    },
+    "late_day_cooling": {
+      "lower": 0.03,
+      "primary": 0.9,
+      "upper": 0.07
+    }
+  },
+  "trading_rules": {
+    "min_edge_to_open_yes": 0.1,
+    "min_edge_to_open_no": 0.1,
+    "min_edge_to_hold": 0.03,
+    "max_positions": 3,
+    "trade_size_policy": {
+      "early_morning_multiplier": 0.25,
+      "after_10utc_multiplier": 0.5,
+      "confirmed_scenario_multiplier": 1.0
+    },
+    "post_14local_market_scope": "At 14 local and later, current observed high becomes much more important, but 1C additional upside remains possible.",
+    "skip_condition": "If absolute edge is below threshold, do not trade."
+  },
+  "exit_rules": {
+    "edge_compression": {
+      "condition": "edge < 0.03",
+      "action": "close_or_reduce"
+    },
+    "scenario_invalidation": {
+      "condition": "fresh_METAR moves at least 1C against the scenario after 14 local",
+      "action": "reduce_or_close"
+    },
+    "path_break": {
+      "condition": "expected clear-day heating fails by 14-15 local",
+      "action": "close_higher_bucket_positions"
+    },
+    "post_peak_confirmation": {
+      "condition": "current_high confirmed by repeated METARs and late-day cooling after 15 local",
+      "action": "hold_or_add_to_current_exact_high"
+    }
+  },
+  "warnings": [
+    "Do not treat Munich like Madrid; post-noon upside is usually 1-2C, not 3-5C.",
+    "Do not overreact to observed 10 local being above ECMWF; ECMWF is normally cold in Munich mornings.",
+    "Clear days dominate the primary sample and frequently outperform both ECMWF and GFS.",
+    "Cloudy and rainy days reduce upside and tend to peak earlier.",
+    "Ensemble member coverage is short, so use p75-p85 only as a realistic upper-bound confirmation layer."
+  ],
+  "operational_summary": {
+    "base_model": "ECMWF_DAILY_MAX",
+    "primary_city_filter": "Whether the day can maintain clear-sky heating into 14-15 local",
+    "most_important_hours_local": [10, 12, 14, 15],
+    "main_post_noon_rule": "Munich usually adds 1-2C after noon; 3C is possible, 4C is rare.",
+    "main_post_peak_rule": "After 15 local, repeated failure to print a new high should quickly shift probability toward the current observed high."
+  }
+}

@@ -1,0 +1,313 @@
+{
+  "city_name": "Paris",
+  "icao": "LFPB",
+  "profile_version": "1.0",
+  "timezone": "Europe/Paris",
+  "station": {
+    "latitude": 48.967,
+    "longitude": 2.428
+  },
+  "market_scope": {
+    "market_type": "highest_temperature_today",
+    "resolution_source": "Station-linked source / Weather Underground style whole-degree daily high",
+    "resolution_rounding_rule": "whole_degree_celsius",
+    "analysis_scope": "same_day_only"
+  },
+  "models": {
+    "primary_model": "GFS",
+    "secondary_model": "ECMWF",
+    "ensemble_role": "confirmation_only",
+    "historical_window": {
+      "start_date": "2026-03-20",
+      "end_date": "2026-05-03",
+      "days_used": 45
+    },
+    "performance": {
+      "gfs": {
+        "avg_error_c": -0.21,
+        "median_error_c": -0.1,
+        "mae_c": 0.69,
+        "avg_10utc_bias_vs_obs_c": -0.56,
+        "clear_avg_error_c": -0.18,
+        "mixed_avg_error_c": 0.04,
+        "cloudy_avg_error_c": 0.1,
+        "rainy_avg_error_c": -0.59
+      },
+      "ecmwf": {
+        "avg_error_c": -1.01,
+        "median_error_c": -1.0,
+        "mae_c": 1.04,
+        "avg_10utc_bias_vs_obs_c": -1.22,
+        "clear_avg_error_c": -1.03,
+        "mixed_avg_error_c": -0.94,
+        "cloudy_avg_error_c": 0.2,
+        "rainy_avg_error_c": -1.29
+      },
+      "ensemble": {
+        "coverage_note": "Ensemble in the updated archive is only available on a short trailing window and should be used only as a weak confirmation layer."
+      }
+    }
+  },
+  "historical_summary": {
+    "avg_actual_max_c": 18.02,
+    "avg_diurnal_range_c": 11.44,
+    "type_counts": {
+      "clear": 26,
+      "mixed": 8,
+      "cloudy": 2,
+      "rainy": 9
+    },
+    "max_hour_distribution_utc": {
+      "00": 1,
+      "09": 1,
+      "10": 2,
+      "11": 3,
+      "12": 9,
+      "13": 9,
+      "14": 13,
+      "15": 7
+    },
+    "gain_after_noon_distribution_c": {
+      "0": 16,
+      "1": 19,
+      "2": 9,
+      "4": 1
+    }
+  },
+  "day_regimes": {
+    "clear": {
+      "detection": {
+        "morning_window_utc": [8, 11],
+        "min_clear_observations": 4,
+        "max_cloudy_observations": 2,
+        "max_rain_observations": 0
+      },
+      "behavior": {
+        "avg_max_c": 20.15,
+        "avg_diurnal_range_c": 13.42,
+        "avg_gain_after_10utc_c": 3.46,
+        "avg_gain_after_noon_c": 1.08,
+        "avg_peak_hour_utc": 13.42
+      },
+      "adjustments": {
+        "projected_max_c": 1.0
+      }
+    },
+    "mixed": {
+      "detection": {
+        "rule": "Default regime when day is neither clearly dry/clear nor clearly suppressed by cloud/rain."
+      },
+      "behavior": {
+        "avg_max_c": 14.88,
+        "avg_diurnal_range_c": 10.0,
+        "avg_gain_after_10utc_c": 1.25,
+        "avg_gain_after_noon_c": 0.5,
+        "avg_peak_hour_utc": 12.0
+      },
+      "adjustments": {
+        "projected_max_c": 0.0
+      }
+    },
+    "cloudy": {
+      "detection": {
+        "morning_window_utc": [8, 11],
+        "min_cloudy_observations": 4,
+        "rain_not_required": true
+      },
+      "behavior": {
+        "avg_max_c": 11.0,
+        "avg_diurnal_range_c": 4.0,
+        "avg_gain_after_10utc_c": 0.5,
+        "avg_gain_after_noon_c": 0.5,
+        "avg_peak_hour_utc": 11.5
+      },
+      "adjustments": {
+        "projected_max_c": -1.0
+      }
+    },
+    "rainy": {
+      "detection": {
+        "day_window_utc": [8, 14],
+        "min_rain_observations": 2
+      },
+      "behavior": {
+        "avg_max_c": 16.22,
+        "avg_diurnal_range_c": 8.67,
+        "avg_gain_after_10utc_c": 2.89,
+        "avg_gain_after_noon_c": 0.89,
+        "avg_peak_hour_utc": 11.78
+      },
+      "adjustments": {
+        "projected_max_c": -0.5
+      }
+    }
+  },
+  "timing_rules": {
+    "primary_peak_window_utc": [12, 15],
+    "peak_center_window_utc": [13, 14],
+    "typical_post_noon_upside_c": [0, 1],
+    "rare_post_noon_upside_c": 2,
+    "tail_post_noon_upside_c": 3,
+    "path_driven_start_hour_local": 12,
+    "late_day_decay_hour_utc": 14,
+    "harder_decay_hour_utc": 15
+  },
+  "scoring_model": {
+    "base_rule": {
+      "source": "MODEL_CONSENSUS_MAX",
+      "operation": "round_to_nearest_integer"
+    },
+    "adjustments": [
+      {
+        "name": "ecmwf_warmer_than_gfs",
+        "condition": "ecmwf_daily_max >= gfs_daily_max + 1.0",
+        "delta_c": 0.5,
+        "reason": "ECMWF adds limited upside confirmation when meaningfully warmer than GFS."
+      },
+      {
+        "name": "clear_regime",
+        "condition": "day_regime == clear",
+        "delta_c": 1.0,
+        "reason": "Clear days in Paris tend to outperform raw model maxima."
+      },
+      {
+        "name": "cloudy_regime",
+        "condition": "day_regime == cloudy",
+        "delta_c": -1.0,
+        "reason": "Cloudy days strongly cap the daily high."
+      },
+      {
+        "name": "rainy_regime",
+        "condition": "day_regime == rainy",
+        "delta_c": -0.5,
+        "reason": "Rainy days reduce realized upside but not always catastrophically."
+      },
+      {
+        "name": "obs10_above_gfs10",
+        "condition": "obs_10utc >= gfs_10utc + 1.0",
+        "delta_c": 1.0,
+        "reason": "Observed early warmth usually implies further outperformance."
+      },
+      {
+        "name": "obs10_below_gfs10",
+        "condition": "obs_10utc <= gfs_10utc - 1.0",
+        "delta_c": -1.0,
+        "reason": "Observed lag relative to GFS usually implies reduced realized high."
+      },
+      {
+        "name": "noon_underperformance",
+        "condition": "max_by_noon <= provisional_target - 2.0",
+        "delta_c": -1.0,
+        "reason": "By noon, Paris usually cannot recover a large shortfall."
+      },
+      {
+        "name": "after_14_no_new_high_and_cooling",
+        "condition": "current_hour >= 14 and obs_current < obs_max_so_far",
+        "delta_c": -0.5,
+        "reason": "After the main peak window, a cooling path should decay higher buckets."
+      }
+    ],
+    "final_rule": {
+      "operation": "round(base_max + total_adjustment)"
+    }
+  },
+  "intraday_path_rules": {
+    "max_by_noon_rule": "In most Paris days, only 0-1C remains after noon; 2C is possible; 3C+ is rare.",
+    "rain_after_high_rule": {
+      "condition": "new_high_printed and subsequent_rain_or_temp_drop",
+      "effect": "Lock current high as primary exact bucket and sharply reduce higher bucket probabilities."
+    },
+    "sticky_high_rule": {
+      "condition": "same_high_printed_multiple_times in late_day_window",
+      "effect": "Increase confidence that the current high is the final high."
+    },
+    "no_new_high_after_14utc_rule": {
+      "condition": "time >= 14 UTC and no new high for at least one hour",
+      "effect": "Discount the next higher bucket aggressively."
+    }
+  },
+  "fair_value_templates": {
+    "pre_noon": {
+      "clear": {
+        "lower": 0.2,
+        "primary": 0.5,
+        "upper": 0.3
+      },
+      "mixed": {
+        "lower": 0.3,
+        "primary": 0.55,
+        "upper": 0.15
+      },
+      "cloudy": {
+        "lower": 0.3,
+        "primary": 0.55,
+        "upper": 0.15
+      },
+      "rainy": {
+        "lower": 0.35,
+        "primary": 0.5,
+        "upper": 0.15
+      }
+    },
+    "post_noon_default": {
+      "lower": 0.1,
+      "primary": 0.75,
+      "upper": 0.15
+    },
+    "post_noon_cooling": {
+      "lower": 0.05,
+      "primary": 0.85,
+      "upper": 0.1
+    },
+    "late_day_cooling": {
+      "lower": 0.03,
+      "primary": 0.9,
+      "upper": 0.07
+    }
+  },
+  "trading_rules": {
+    "min_edge_to_open_yes": 0.1,
+    "min_edge_to_open_no": 0.1,
+    "min_edge_to_hold": 0.03,
+    "max_positions": 3,
+    "trade_size_policy": {
+      "early_morning_multiplier": 0.25,
+      "after_10utc_multiplier": 0.5,
+      "confirmed_scenario_multiplier": 1.0
+    },
+    "post_14utc_market_scope": "Only trade the current observed high bucket and its nearest neighbor.",
+    "skip_condition": "If absolute edge is below threshold, do not trade."
+  },
+  "exit_rules": {
+    "edge_compression": {
+      "condition": "edge < 0.03",
+      "action": "close_or_reduce"
+    },
+    "scenario_invalidation": {
+      "condition": "fresh_METAR moves at least 1C against the scenario",
+      "action": "reduce_or_close"
+    },
+    "path_break": {
+      "condition": "expected clear acceleration fails and rainy/cloudy suppression appears",
+      "action": "close_higher_bucket_positions"
+    },
+    "post_peak_confirmation": {
+      "condition": "current_high confirmed by cooling/rain after peak",
+      "action": "hold_or_add_to_current_exact_high"
+    }
+  },
+  "warnings": [
+    "Do not trust ECMWF literally on warm clear Paris days; it often underpredicts the final high.",
+    "Do not extrapolate a clear-day afternoon ramp onto rainy or heavily clouded days.",
+    "After noon, assume limited upside unless there is obvious active acceleration.",
+    "After 14-15 UTC, no new high usually means rapid upper-tail decay.",
+    "Use ensemble only as a weak confirmation layer for Paris in this data set."
+  ],
+  "operational_summary": {
+    "base_model": "GFS",
+    "primary_city_filter": "Morning sky regime and rain presence",
+    "most_important_hours_utc": [10, 12, 14],
+    "main_post_noon_rule": "Paris usually has only 0-1C of upside left after noon.",
+    "main_post_peak_rule": "Once a new high is followed by rain or cooling, treat that high as the most likely final high."
+  }
+}

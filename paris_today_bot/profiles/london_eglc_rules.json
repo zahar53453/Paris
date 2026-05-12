@@ -1,0 +1,352 @@
+{
+  "city_name": "London",
+  "icao": "EGLC",
+  "profile_version": "1.0",
+  "timezone": "Europe/London",
+  "station": {
+    "latitude": 51.505,
+    "longitude": 0.055
+  },
+  "market_scope": {
+    "market_type": "highest_temperature_today",
+    "resolution_source": "Station-linked source / Weather Underground style whole-degree daily high",
+    "resolution_rounding_rule": "whole_degree_celsius",
+    "analysis_scope": "same_day_only"
+  },
+  "models": {
+    "primary_model": "ECMWF",
+    "secondary_model": "GFS",
+    "ensemble_role": "confirmation_only",
+    "historical_window": {
+      "start_date": "2026-03-20",
+      "end_date": "2026-05-03",
+      "days_used": 45
+    },
+    "performance": {
+      "ecmwf": {
+        "avg_error_c": -0.06,
+        "median_error_c": -0.2,
+        "mae_c": 0.65,
+        "avg_10utc_bias_vs_obs_c": -0.69,
+        "clear_avg_error_c": 0.15,
+        "mixed_avg_error_c": -0.28,
+        "cloudy_avg_error_c": -0.15,
+        "rainy_avg_error_c": -0.2,
+        "foggy_avg_error_c": -0.1
+      },
+      "gfs": {
+        "avg_error_c": -0.45,
+        "median_error_c": -0.3,
+        "mae_c": 0.74,
+        "avg_10utc_bias_vs_obs_c": -0.91,
+        "clear_avg_error_c": -0.32,
+        "mixed_avg_error_c": -0.69,
+        "cloudy_avg_error_c": -0.31,
+        "rainy_avg_error_c": -1.8,
+        "foggy_avg_error_c": -0.3
+      },
+      "ensemble": {
+        "coverage_note": "Ensemble is only available on a short trailing window and should be used for weak confirmation only.",
+        "available_days": 2
+      }
+    }
+  },
+  "historical_summary": {
+    "avg_actual_max_c": 15.87,
+    "avg_diurnal_range_c": 8.4,
+    "type_counts": {
+      "clear": 19,
+      "mixed": 12,
+      "cloudy": 11,
+      "rainy": 1,
+      "foggy": 2
+    },
+    "max_hour_distribution_utc": {
+      "00": 1,
+      "09": 1,
+      "10": 3,
+      "11": 5,
+      "12": 7,
+      "13": 9,
+      "14": 14,
+      "15": 4,
+      "16": 1
+    },
+    "gain_after_noon_distribution_c": {
+      "0": 17,
+      "1": 21,
+      "2": 6,
+      "3": 1
+    }
+  },
+  "day_regimes": {
+    "clear": {
+      "detection": {
+        "morning_window_utc": [8, 11],
+        "min_clear_observations": 4,
+        "max_cloudy_observations": 2,
+        "max_rain_observations": 0,
+        "max_fog_observations": 1
+      },
+      "behavior": {
+        "avg_max_c": 16.79,
+        "avg_diurnal_range_c": 9.53,
+        "avg_gain_after_10utc_c": 2.58,
+        "avg_gain_after_noon_c": 0.79,
+        "avg_peak_hour_utc": 13.11
+      },
+      "adjustments": {
+        "projected_max_c": 0.5
+      }
+    },
+    "mixed": {
+      "detection": {
+        "rule": "Default regime when the day is neither clearly free-heating nor clearly capped by cloud, rain or fog."
+      },
+      "behavior": {
+        "avg_max_c": 15.08,
+        "avg_diurnal_range_c": 8.25,
+        "avg_gain_after_10utc_c": 2.17,
+        "avg_gain_after_noon_c": 0.67,
+        "avg_peak_hour_utc": 12.58
+      },
+      "adjustments": {
+        "projected_max_c": 0.0
+      }
+    },
+    "cloudy": {
+      "detection": {
+        "morning_window_utc": [8, 11],
+        "min_cloudy_observations": 4,
+        "rain_not_required": true
+      },
+      "behavior": {
+        "avg_max_c": 15.09,
+        "avg_diurnal_range_c": 6.09,
+        "avg_gain_after_10utc_c": 2.18,
+        "avg_gain_after_noon_c": 0.82,
+        "avg_peak_hour_utc": 11.64
+      },
+      "adjustments": {
+        "projected_max_c": -0.5
+      }
+    },
+    "rainy": {
+      "detection": {
+        "day_window_utc": [8, 14],
+        "min_rain_observations": 2,
+        "note": "Very low sample count in this window; use this regime conservatively."
+      },
+      "behavior": {
+        "avg_max_c": 12.0,
+        "avg_diurnal_range_c": 5.0,
+        "avg_gain_after_10utc_c": 0.0,
+        "avg_gain_after_noon_c": 0.0,
+        "avg_peak_hour_utc": 10.0
+      },
+      "adjustments": {
+        "projected_max_c": -1.0
+      }
+    },
+    "foggy": {
+      "detection": {
+        "morning_window_utc": [8, 11],
+        "min_fog_observations": 2,
+        "fog_tokens": ["BR", "FG", "HZ", "MIFG"]
+      },
+      "behavior": {
+        "avg_max_c": 18.0,
+        "avg_diurnal_range_c": 13.0,
+        "avg_gain_after_10utc_c": 5.5,
+        "avg_gain_after_noon_c": 2.0,
+        "avg_peak_hour_utc": 14.5
+      },
+      "adjustments": {
+        "projected_max_c": 0.5
+      }
+    }
+  },
+  "timing_rules": {
+    "primary_peak_window_utc": [12, 15],
+    "peak_center_window_utc": [13, 14],
+    "typical_post_noon_upside_c": [0, 1],
+    "rare_post_noon_upside_c": 2,
+    "tail_post_noon_upside_c": 3,
+    "path_driven_start_hour_local": 12,
+    "late_day_decay_hour_utc": 14,
+    "harder_decay_hour_utc": 15
+  },
+  "scoring_model": {
+    "base_rule": {
+      "source": "MODEL_CONSENSUS_MAX",
+      "operation": "round_to_nearest_integer"
+    },
+    "adjustments": [
+      {
+        "name": "gfs_warmer_than_ecmwf",
+        "condition": "gfs_daily_max >= ecmwf_daily_max + 1.0",
+        "delta_c": 0.25,
+        "reason": "GFS can add a small upside check, but ECMWF remains the base for London."
+      },
+      {
+        "name": "clear_regime",
+        "condition": "day_regime == clear",
+        "delta_c": 0.5,
+        "reason": "Clear London days usually still add modest upside."
+      },
+      {
+        "name": "cloudy_regime",
+        "condition": "day_regime == cloudy",
+        "delta_c": -0.5,
+        "reason": "Cloudy London days cap upside earlier than Paris."
+      },
+      {
+        "name": "rainy_regime",
+        "condition": "day_regime == rainy",
+        "delta_c": -1.0,
+        "reason": "Observed rainy London days in this sample had very limited further heating."
+      },
+      {
+        "name": "foggy_regime",
+        "condition": "day_regime == foggy",
+        "delta_c": 0.5,
+        "reason": "Morning fog can burn off and produce strong delayed heating."
+      },
+      {
+        "name": "obs10_above_ecmwf10",
+        "condition": "obs_10utc >= ecmwf_10utc + 1.0",
+        "delta_c": 0.75,
+        "reason": "Observed early warmth versus ECMWF usually implies upside."
+      },
+      {
+        "name": "obs10_below_ecmwf10",
+        "condition": "obs_10utc <= ecmwf_10utc - 1.0",
+        "delta_c": -0.75,
+        "reason": "Observed lag versus ECMWF reduces expected high."
+      },
+      {
+        "name": "noon_underperformance",
+        "condition": "max_by_noon <= provisional_target - 2.0",
+        "delta_c": -1.0,
+        "reason": "By noon, London usually cannot recover a large deficit."
+      },
+      {
+        "name": "after_14_no_new_high_and_cooling",
+        "condition": "current_hour >= 14 and obs_current < obs_max_so_far",
+        "delta_c": -0.5,
+        "reason": "After the main London peak window, cooling should decay higher buckets."
+      }
+    ],
+    "final_rule": {
+      "operation": "round(base_max + total_adjustment)"
+    }
+  },
+  "intraday_path_rules": {
+    "max_by_noon_rule": "In most London days, only 0-1C remains after noon; 2C is possible; 3C is a real tail.",
+    "fog_burnoff_rule": {
+      "condition": "morning fog clears by late morning and temperatures accelerate into noon",
+      "effect": "Do not keep the day in a suppressed regime; allow delayed upside."
+    },
+    "rain_after_high_rule": {
+      "condition": "new_high_printed and subsequent_rain_or_temp_drop",
+      "effect": "Lock current high as primary exact bucket and sharply reduce higher bucket probabilities."
+    },
+    "sticky_high_rule": {
+      "condition": "same_high_printed_multiple_times in late_day_window",
+      "effect": "Increase confidence that the current high is the final high."
+    },
+    "no_new_high_after_14utc_rule": {
+      "condition": "time >= 14 UTC and no new high for at least one hour",
+      "effect": "Discount the next higher bucket aggressively."
+    }
+  },
+  "fair_value_templates": {
+    "pre_noon": {
+      "clear": {
+        "lower": 0.25,
+        "primary": 0.5,
+        "upper": 0.25
+      },
+      "mixed": {
+        "lower": 0.3,
+        "primary": 0.55,
+        "upper": 0.15
+      },
+      "cloudy": {
+        "lower": 0.35,
+        "primary": 0.5,
+        "upper": 0.15
+      },
+      "rainy": {
+        "lower": 0.45,
+        "primary": 0.45,
+        "upper": 0.1
+      },
+      "foggy": {
+        "lower": 0.2,
+        "primary": 0.45,
+        "upper": 0.35
+      }
+    },
+    "post_noon_default": {
+      "lower": 0.12,
+      "primary": 0.73,
+      "upper": 0.15
+    },
+    "post_noon_cooling": {
+      "lower": 0.07,
+      "primary": 0.83,
+      "upper": 0.1
+    },
+    "late_day_cooling": {
+      "lower": 0.05,
+      "primary": 0.88,
+      "upper": 0.07
+    }
+  },
+  "trading_rules": {
+    "min_edge_to_open_yes": 0.1,
+    "min_edge_to_open_no": 0.1,
+    "min_edge_to_hold": 0.03,
+    "max_positions": 3,
+    "trade_size_policy": {
+      "early_morning_multiplier": 0.25,
+      "after_10utc_multiplier": 0.5,
+      "confirmed_scenario_multiplier": 1.0
+    },
+    "post_14utc_market_scope": "Only trade the current observed high bucket and its nearest neighbor.",
+    "skip_condition": "If absolute edge is below threshold, do not trade."
+  },
+  "exit_rules": {
+    "edge_compression": {
+      "condition": "edge < 0.03",
+      "action": "close_or_reduce"
+    },
+    "scenario_invalidation": {
+      "condition": "fresh_METAR moves at least 1C against the scenario",
+      "action": "reduce_or_close"
+    },
+    "path_break": {
+      "condition": "expected delayed upside fails and cloudy/rain suppression persists",
+      "action": "close_higher_bucket_positions"
+    },
+    "post_peak_confirmation": {
+      "condition": "current_high confirmed by cooling/rain after peak",
+      "action": "hold_or_add_to_current_exact_high"
+    }
+  },
+  "warnings": [
+    "Do not use Paris clear-day upside assumptions for London; London's post-noon upside is smaller.",
+    "Morning fog at EGLC is a special regime and can produce delayed upside after burn-off.",
+    "London often peaks around 13-14 UTC; if no new high appears after 14-15 UTC, the upper tail decays quickly.",
+    "Use rainy-regime rules cautiously because the explicit rainy sample in this window is very small.",
+    "Ensemble should only be a weak confirmation layer for London in this data set."
+  ],
+  "operational_summary": {
+    "base_model": "ECMWF",
+    "primary_city_filter": "Morning cloud/fog regime and whether the day accelerates into noon",
+    "most_important_hours_utc": [10, 12, 14],
+    "main_post_noon_rule": "London usually has only 0-1C of upside left after noon.",
+    "main_post_peak_rule": "Once a new high is followed by cooling or rain, treat that high as the most likely final high."
+  }
+}
