@@ -245,11 +245,28 @@ async def refresh_paper_prices() -> dict:
         try:
             profile_trades = [trade for trade in open_trades if trade.profile_slug == profile_slug]
             client = CityMarketClient(config, profile)
-            books_by_token = await client.fetch_books_by_token([trade.token_id for trade in profile_trades])
-            market_states = await client.fetch_market_states([trade.market_id for trade in profile_trades])
-            item = broker.mark_to_market_by_books(profile, books_by_token, market_states=market_states)
+            token_ids = [trade.token_id for trade in profile_trades]
+            market_ids = [trade.market_id for trade in profile_trades]
+            books_by_token = await client.fetch_books_by_token(token_ids)
+            token_prices = await client.fetch_prices_by_token(token_ids)
+            market_states = await client.fetch_market_states(market_ids)
+            token_market_states = await client.fetch_market_states_by_token(token_ids)
+            item = broker.mark_to_market_by_books(
+                profile,
+                books_by_token,
+                token_prices=token_prices,
+                market_states=market_states,
+                token_market_states=token_market_states,
+            )
+            log_runtime(
+                f"[paper-refresh] profile={profile.slug} open={len(profile_trades)} "
+                f"books={len(books_by_token)} prices={len(token_prices)} "
+                f"states_by_market={len(market_states)} states_by_token={len(token_market_states)} "
+                f"updated={item.get('updated', 0)} closed={item.get('closed', 0)}"
+            )
             refreshed.append({"profile": profile_slug, **item})
         except Exception as exc:
+            log_runtime(f"[paper-refresh] profile={profile_slug} failed: {type(exc).__name__}: {exc}")
             errors.append({"profile": profile_slug, "error": f"{type(exc).__name__}: {exc}"})
     return {"refreshed": refreshed, "errors": errors}
 

@@ -71,6 +71,16 @@ class CityMarketClient:
             books_by_token[token_id] = result
         return books_by_token
 
+    async def fetch_prices_by_token(self, token_ids: list[str]) -> dict[str, float]:
+        clean_ids = [token_id for token_id in token_ids if token_id]
+        if not clean_ids:
+            return {}
+        async with httpx.AsyncClient(timeout=8.0) as client:
+            response = await client.post(f"{self.cfg.clob_api_url}/prices", json={"token_ids": clean_ids})
+            response.raise_for_status()
+            payload = response.json()
+        return self._parse_prices_payload(payload)
+
     async def fetch_market_states(self, market_ids: list[str]) -> dict[str, dict[str, Any]]:
         clean_ids = [market_id for market_id in market_ids if market_id]
         if not clean_ids:
@@ -85,6 +95,14 @@ class CityMarketClient:
             states[market_id] = result
         return states
 
+    async def fetch_market_states_by_token(self, token_ids: list[str]) -> dict[str, dict[str, Any]]:
+        clean_ids = [token_id for token_id in token_ids if token_id]
+        if not clean_ids:
+            return {}
+        async with httpx.AsyncClient(timeout=12.0) as client:
+            states = await self._fetch_market_states_by_tokens(client, clean_ids)
+        return states
+
     async def _fetch_market_state(self, client: httpx.AsyncClient, market_id: str) -> dict[str, Any] | None:
         response = await client.get(f"{self.cfg.gamma_api_url}/markets", params={"condition_id": market_id})
         response.raise_for_status()
@@ -92,6 +110,33 @@ class CityMarketClient:
         if not payload:
             return None
         market = payload[0]
+        return self._parse_gamma_market_state(market)
+
+    async def _fetch_market_states_by_tokens(
+        self,
+        client: httpx.AsyncClient,
+        token_ids: list[str],
+    ) -> dict[str, dict[str, Any]]:
+        query = ",".join(token_ids)
+        response: httpx.Response | None = None
+        for params in ({"clob_token_ids": query}, {"clobTokenIds": query}):
+            candidate = await client.get(f"{self.cfg.gamma_api_url}/markets", params=params)
+            if candidate.status_code == 200:
+                response = candidate
+                break
+        if response is None:
+            return {}
+        payload = response.json()
+        if not isinstance(payload, list):
+            payload = [payload]
+        states_by_token: dict[str, dict[str, Any]] = {}
+        for market in payload:
+            state = self._parse_gamma_market_state(market)
+            for token_id in state.get("prices_by_token", {}).keys():
+                states_by_token[str(token_id)] = state
+        return states_by_token
+
+    def _parse_gamma_market_state(self, market: dict[str, Any]) -> dict[str, Any]:
         token_ids = market.get("clobTokenIds", [])
         outcome_prices = market.get("outcomePrices", [])
         if isinstance(token_ids, str):
@@ -105,6 +150,7 @@ class CityMarketClient:
             except (TypeError, ValueError):
                 continue
         return {
+            "market_id": str(market.get("conditionId") or market.get("condition_id") or market.get("id") or ""),
             "active": bool(market.get("active", False)),
             "closed": bool(market.get("closed", False)),
             "archived": bool(market.get("archived", False)),
@@ -222,3 +268,27 @@ class CityMarketClient:
             return float(value)
         except (TypeError, ValueError):
             return None
+
+    def _parse_prices_payload(self, payload: Any) -> dict[str, float]:
+        prices: dict[str, float] = {}
+        if isinstance(payload, dict):
+            for token_id, value in payload.items():
+                try:
+                    prices[str(token_id)] = float(value)
+                except (TypeError, ValueError):
+                    continue
+            return prices
+        if not isinstance(payload, list):
+            return prices
+        for item in payload:
+            if not isinstance(item, dict):
+                continue
+            token_id = item.get("token_id") or item.get("tokenId")
+            value = item.get("price")
+            if token_id is None or value is None:
+                continue
+            try:
+                prices[str(token_id)] = float(value)
+            except (TypeError, ValueError):
+                continue
+        return prices
