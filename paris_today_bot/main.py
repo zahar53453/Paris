@@ -240,8 +240,10 @@ async def refresh_paper_prices() -> dict:
         if profile is None:
             continue
         try:
-            market = await CityMarketClient(config, profile).fetch_today_market()
-            item = broker.mark_to_market(profile, market.markets)
+            profile_trades = [trade for trade in open_trades if trade.profile_slug == profile_slug]
+            client = CityMarketClient(config, profile)
+            books_by_token = await client.fetch_books_by_token([trade.token_id for trade in profile_trades])
+            item = broker.mark_to_market_by_books(profile, books_by_token)
             refreshed.append({"profile": profile_slug, **item})
         except Exception as exc:
             errors.append({"profile": profile_slug, "error": f"{type(exc).__name__}: {exc}"})

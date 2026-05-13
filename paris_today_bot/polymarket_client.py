@@ -57,6 +57,20 @@ class CityMarketClient:
             markets=markets,
         )
 
+    async def fetch_books_by_token(self, token_ids: list[str]) -> dict[str, dict[str, float | None]]:
+        clean_ids = [token_id for token_id in token_ids if token_id]
+        if not clean_ids:
+            return {}
+        async with httpx.AsyncClient(timeout=8.0) as client:
+            tasks = {token_id: self._fetch_book(client, token_id) for token_id in clean_ids}
+            results = await asyncio.gather(*tasks.values(), return_exceptions=True)
+        books_by_token: dict[str, dict[str, float | None]] = {}
+        for token_id, result in zip(tasks.keys(), results):
+            if isinstance(result, Exception):
+                continue
+            books_by_token[token_id] = result
+        return books_by_token
+
     def _extract_title_date(self, title: str) -> str | None:
         m = re.search(r"on ([A-Za-z]+ \d{1,2}, \d{4})", title)
         if not m:

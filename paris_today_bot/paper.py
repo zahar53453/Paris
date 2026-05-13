@@ -109,6 +109,7 @@ class PaperBroker:
         open_token_ids = {trade.token_id for trade in open_trades}
 
         expired = self._close_expired(open_trades, local_today, now, events)
+        take_profit = self._close_take_profit(open_trades, market_by_id, now, events)
         untradable = self._close_untradable(open_trades, market_by_id, now, events)
         closed = self._close_invalidated(open_trades, market_by_id, fair_values, now, events)
         opened = self._open_new(profile, trades, actions, market_by_id, fair_values, open_token_ids, now, events)
@@ -118,7 +119,7 @@ class PaperBroker:
 
         return {
             "opened": [asdict(trade) for trade in opened],
-            "closed": [asdict(trade) for trade in [*expired, *untradable, *closed]],
+            "closed": [asdict(trade) for trade in [*expired, *take_profit, *untradable, *closed]],
             "open_count": len([trade for trade in trades if trade.status == "OPEN"]),
             "realized_pnl": round(sum(float(trade.realized_pnl or 0.0) for trade in trades), 4),
         }
@@ -144,6 +145,61 @@ class PaperBroker:
         if updated:
             self.store.save_trades(trades, [])
         return {"updated": updated}
+
+    def mark_to_market_by_books(
+        self,
+        profile: CityProfile,
+        books_by_token: dict[str, dict[str, float | None]],
+        now: str | None = None,
+    ) -> dict[str, Any]:
+        timestamp = now or datetime.now(UTC).isoformat()
+        trades = self.store.load_trades()
+        updated = 0
+        closed = 0
+        events: list[dict[str, Any]] = []
+        for trade in trades:
+            if trade.status != "OPEN" or trade.profile_slug != profile.slug:
+                continue
+            book = books_by_token.get(trade.token_id)
+            if book is None:
+                continue
+            exit_price = book.get("best_bid")
+            entry_price_now = book.get("best_ask") if trade.side == "YES" else book.get("best_ask")
+            if exit_price is None:
+                continue
+            trade.last_price = float(exit_price)
+            trade.last_unrealized_pnl = (float(exit_price) - trade.entry_price) * trade.shares
+            trade.updated_at = timestamp
+            updated += 1
+            if float(exit_price) >= 0.99:
+                trade.status = "CLOSED"
+                trade.closed_at = timestamp
+                trade.exit_price = float(exit_price)
+                trade.exit_edge = trade.last_edge
+                trade.realized_pnl = trade.last_unrealized_pnl
+                trade.close_reason = "Contract reached forced take-profit threshold >= 0.99."
+                events.append(self._event("CLOSE", trade, timestamp))
+                closed += 1
+                log_runtime(
+                    f"[paper] take-profit trade closed city={trade.city_name} side={trade.side} "
+                    f"question={trade.question} exit={float(exit_price):.3f}"
+                )
+            elif entry_price_now is not None and float(entry_price_now) <= self.cfg.paper_min_contract_price:
+                trade.status = "CLOSED"
+                trade.closed_at = timestamp
+                trade.exit_price = float(exit_price)
+                trade.exit_edge = trade.last_edge
+                trade.realized_pnl = trade.last_unrealized_pnl
+                trade.close_reason = "Contract fell below tradable price floor during mark-to-market."
+                events.append(self._event("CLOSE", trade, timestamp))
+                closed += 1
+                log_runtime(
+                    f"[paper] floor-close trade closed city={trade.city_name} side={trade.side} "
+                    f"question={trade.question} ask={float(entry_price_now):.3f} exit={float(exit_price):.3f}"
+                )
+        if updated or events:
+            self.store.save_trades(trades, events)
+        return {"updated": updated, "closed": closed}
 
     def _close_expired(
         self,
@@ -255,6 +311,40 @@ class PaperBroker:
             log_runtime(
                 f"[paper] untradable trade closed city={trade.city_name} side={trade.side} "
                 f"question={trade.question} current_entry={current_entry_price:.3f} exit={current_exit_price:.3f}"
+            )
+        return closed
+
+    def _close_take_profit(
+        self,
+        open_trades: list[PaperTrade],
+        market_by_id: dict[str, BucketMarket],
+        now: str,
+        events: list[dict[str, Any]],
+    ) -> list[PaperTrade]:
+        closed: list[PaperTrade] = []
+        for trade in open_trades:
+            if trade.status != "OPEN":
+                continue
+            market = market_by_id.get(trade.market_id)
+            if market is None:
+                continue
+            current_exit_price = self._exit_price_for_side(market, trade.side)
+            if current_exit_price is None or float(current_exit_price) < 0.99:
+                continue
+            trade.last_price = float(current_exit_price)
+            trade.last_unrealized_pnl = (float(current_exit_price) - trade.entry_price) * trade.shares
+            trade.updated_at = now
+            trade.status = "CLOSED"
+            trade.closed_at = now
+            trade.exit_price = float(current_exit_price)
+            trade.exit_edge = trade.last_edge
+            trade.realized_pnl = trade.last_unrealized_pnl
+            trade.close_reason = "Contract reached forced take-profit threshold >= 0.99."
+            closed.append(trade)
+            events.append(self._event("CLOSE", trade, now))
+            log_runtime(
+                f"[paper] take-profit trade closed city={trade.city_name} side={trade.side} "
+                f"question={trade.question} exit={float(current_exit_price):.3f}"
             )
         return closed
 
