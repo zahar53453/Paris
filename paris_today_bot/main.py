@@ -11,6 +11,7 @@ from paris_today_bot.execution import CityExecutor
 from paris_today_bot.paper import PaperBroker, PaperReporter, PaperStore
 from paris_today_bot.polymarket_client import CityMarketClient
 from paris_today_bot.profile_loader import list_profiles, load_profile
+from paris_today_bot.runtime_log import log_runtime
 from paris_today_bot.state import StateStore
 from paris_today_bot.strategy import ProfiledTodayStrategy
 from paris_today_bot.telegram_service import PaperTelegramService, RuntimeStatus, render_cycle_notifications
@@ -74,6 +75,13 @@ async def run_for_profile(
     }
     if paper_result is not None:
         result["paper"] = paper_result
+    buy_actions = sum(1 for action in actions if action.action in {"BUY_YES", "BUY_NO"})
+    log_runtime(
+        f"[profile] {profile.city_name} projected_max={decision.projected_max} "
+        f"actions={len(actions)} buy_actions={buy_actions} "
+        f"paper_opened={len((paper_result or {}).get('opened', []))} "
+        f"paper_closed={len((paper_result or {}).get('closed', []))}"
+    )
     return result
 
 
@@ -108,15 +116,24 @@ async def run_all_profiles(paper: bool = False) -> dict:
 
 async def run_paper_loop(profile_name: str | None, interval_seconds: int) -> None:
     while True:
+        log_runtime(f"[paper-loop] cycle start profile={profile_name or 'ALL'}")
         if profile_name:
             result = await run_for_profile(profile_name=profile_name, paper=True)
         else:
             result = await run_all_profiles(paper=True)
+        log_runtime(
+            f"[paper-loop] cycle finish results={len(result.get('results', []))} "
+            f"errors={len(result.get('errors', []))}"
+        )
         print(json.dumps(result, indent=2, ensure_ascii=False))
         await asyncio.sleep(interval_seconds)
 
 
 async def run_paper_telegram_service(profile_name: str | None, interval_seconds: int) -> None:
+    log_runtime(
+        f"[paper-service] boot profile={profile_name or 'ALL'} interval={interval_seconds}s "
+        f"telegram_enabled={config.telegram_menu_enabled}"
+    )
     runtime = RuntimeStatus(started_at=datetime.now(UTC).isoformat())
     telegram = PaperTelegramService(config, runtime)
     await telegram.start()
@@ -124,6 +141,7 @@ async def run_paper_telegram_service(profile_name: str | None, interval_seconds:
     try:
         while True:
             runtime.last_cycle_started_at = datetime.now(UTC).isoformat()
+            log_runtime(f"[paper-service] cycle started at {runtime.last_cycle_started_at}")
             try:
                 if profile_name:
                     result = {
@@ -137,14 +155,20 @@ async def run_paper_telegram_service(profile_name: str | None, interval_seconds:
                 runtime.last_result = result
                 runtime.last_error = None
                 runtime.last_cycle_finished_at = datetime.now(UTC).isoformat()
+                log_runtime(
+                    f"[paper-service] cycle finished at {runtime.last_cycle_finished_at} "
+                    f"results={len(result.get('results', []))} errors={len(result.get('errors', []))}"
+                )
                 for message in render_cycle_notifications(result):
                     await telegram.push_message(message)
             except Exception as exc:
                 runtime.last_error = f"{type(exc).__name__}: {exc}"
                 runtime.last_cycle_finished_at = datetime.now(UTC).isoformat()
+                log_runtime(f"[paper-service] cycle failed: {runtime.last_error}")
                 await telegram.push_message(f"Cycle error\n{runtime.last_error}")
             await asyncio.sleep(interval_seconds)
     finally:
+        log_runtime("[paper-service] shutting down telegram service")
         await telegram.stop()
 
 
@@ -200,6 +224,10 @@ def main() -> None:
     )
     parser.add_argument("--snapshot-file", default=None, help="Optional local weather archive file for replay/debugging.")
     args = parser.parse_args()
+    log_runtime(
+        f"[main] args once={args.once} paper={args.paper} paper_loop={args.paper_loop} "
+        f"paper_report={args.paper_report} serve_paper={args.serve_paper} profile={args.profile}"
+    )
 
     if args.paper_report:
         result = asyncio.run(build_paper_report())

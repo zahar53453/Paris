@@ -21,7 +21,7 @@ class CityMarketClient:
         self.profile = profile
 
     async def fetch_today_market(self) -> MarketSnapshot:
-        target_date = datetime.now(UTC).date().isoformat()
+        target_date = datetime.now(UTC).astimezone(self.profile.timezone).date().isoformat()
         url = f"{self.cfg.gamma_api_url}/events?limit=200&offset=0&tag_slug=weather&active=true&closed=false"
         async with httpx.AsyncClient(timeout=20.0) as client:
             response = await client.get(url)

@@ -28,6 +28,8 @@ class BotConfig:
     paper_max_trade_usd: float = float(os.getenv("PARIS_BOT_PAPER_MAX_TRADE_USD", "15"))
     paper_start_balance_usd: float = float(os.getenv("PARIS_BOT_PAPER_START_BALANCE_USD", "1000"))
     paper_close_edge: float = float(os.getenv("PARIS_BOT_PAPER_CLOSE_EDGE", "0.00"))
+    paper_min_contract_price: float = float(os.getenv("PARIS_BOT_PAPER_MIN_CONTRACT_PRICE", "0.01"))
+    paper_kelly_fraction: float = float(os.getenv("PARIS_BOT_PAPER_KELLY_FRACTION", "0.05"))
     min_edge_to_open: float = float(os.getenv("PARIS_BOT_MIN_EDGE_TO_OPEN", "0.10"))
     min_edge_to_hold: float = float(os.getenv("PARIS_BOT_MIN_EDGE_TO_HOLD", "0.03"))
     min_no_price: float = float(os.getenv("PARIS_BOT_MIN_NO_PRICE", "0.05"))
@@ -54,6 +56,13 @@ class BotConfig:
         if env_path:
             return Path(env_path)
         return Path("data") / "paris_today_bot_paper_state.json"
+
+    @property
+    def runtime_log_file(self) -> Path:
+        env_path = os.getenv("PARIS_BOT_RUNTIME_LOG_FILE")
+        if env_path:
+            return Path(env_path)
+        return Path("data") / "paris_today_bot_runtime.log"
 
 
 config = BotConfig()

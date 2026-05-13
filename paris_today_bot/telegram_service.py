@@ -7,12 +7,14 @@ from telegram import ReplyKeyboardMarkup, Update
 from telegram.ext import Application, ApplicationBuilder, CommandHandler, ContextTypes, MessageHandler, filters
 
 from paris_today_bot.config import BotConfig
+from paris_today_bot.runtime_log import log_runtime
 
 
 MENU_OPEN = "Open Trades"
 MENU_CLOSED = "Closed Trades"
 MENU_BALANCE = "Balance"
 MENU_STATUS = "Status"
+MENU_LOGS = "Logs"
 
 
 @dataclass(slots=True)
@@ -31,15 +33,28 @@ class PaperTelegramService:
         self.application: Application | None = None
 
     async def start(self) -> None:
+        log_runtime(
+            f"[telegram] start requested menu_enabled={self.cfg.telegram_menu_enabled} "
+            f"token_present={bool(self.cfg.telegram_bot_token)} "
+            f"chat_present={bool(self.cfg.telegram_chat_id)}"
+        )
         if not self.cfg.telegram_menu_enabled or not self.cfg.telegram_bot_token:
+            log_runtime("[telegram] startup skipped because telegram is not fully configured")
             return
-        self.application = ApplicationBuilder().token(self.cfg.telegram_bot_token).build()
-        self.application.add_handler(CommandHandler("start", self.menu_command))
-        self.application.add_handler(CommandHandler("menu", self.menu_command))
-        self.application.add_handler(MessageHandler(filters.TEXT & (~filters.COMMAND), self.handle_menu_text))
-        await self.application.initialize()
-        await self.application.start()
-        await self.application.updater.start_polling()
+        try:
+            self.application = ApplicationBuilder().token(self.cfg.telegram_bot_token).build()
+            self.application.add_handler(CommandHandler("start", self.menu_command))
+            self.application.add_handler(CommandHandler("menu", self.menu_command))
+            self.application.add_handler(MessageHandler(filters.TEXT & (~filters.COMMAND), self.handle_menu_text))
+            await self.application.initialize()
+            log_runtime("[telegram] initialized")
+            await self.application.start()
+            log_runtime("[telegram] application started")
+            await self.application.updater.start_polling()
+            log_runtime("[telegram] polling started")
+        except Exception as exc:
+            log_runtime(f"[telegram] startup failed: {type(exc).__name__}: {exc}")
+            raise
 
     async def stop(self) -> None:
         if self.application is None:
@@ -50,9 +65,15 @@ class PaperTelegramService:
 
     async def push_message(self, text: str) -> None:
         if not self.application or not self.cfg.telegram_chat_id:
+            log_runtime("[telegram] push skipped because application/chat is unavailable")
             return
         for chunk in self._split_text(text):
-            await self.application.bot.send_message(chat_id=self.cfg.telegram_chat_id, text=chunk)
+            try:
+                await self.application.bot.send_message(chat_id=self.cfg.telegram_chat_id, text=chunk)
+                log_runtime(f"[telegram] pushed message chunk len={len(chunk)}")
+            except Exception as exc:
+                log_runtime(f"[telegram] push failed: {type(exc).__name__}: {exc}")
+                raise
 
     async def menu_command(self, update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
         if not self._allowed(update):
@@ -60,6 +81,7 @@ class PaperTelegramService:
         keyboard = [
             [MENU_OPEN, MENU_CLOSED],
             [MENU_BALANCE, MENU_STATUS],
+            [MENU_LOGS],
         ]
         reply_markup = ReplyKeyboardMarkup(keyboard, resize_keyboard=True)
         if update.message is not None:
@@ -87,6 +109,9 @@ class PaperTelegramService:
         if text_cmd == MENU_STATUS:
             await self._safe_reply(update, self.status_text())
             return
+        if text_cmd == MENU_LOGS:
+            await self._safe_reply(update, self.runtime_log_text())
+            return
         await update.message.reply_text("Use the menu buttons.")
 
     def status_text(self) -> str:
@@ -108,6 +133,14 @@ class PaperTelegramService:
         else:
             lines.append("Last error: none")
         return "\n".join(lines)
+
+    def runtime_log_text(self, limit_lines: int = 60) -> str:
+        path = self.cfg.runtime_log_file
+        if not path.exists():
+            return f"Runtime log not found.\nExpected path: {path}"
+        lines = path.read_text(encoding="utf-8").splitlines()
+        tail = lines[-limit_lines:]
+        return "Runtime log tail\n\n" + ("\n".join(tail) if tail else "Log is empty.")
 
     async def _safe_reply(self, update: Update, text: str) -> None:
         if update.message is None:

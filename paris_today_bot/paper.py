@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import json
 from dataclasses import asdict, dataclass, field
-from datetime import UTC, datetime
+from datetime import UTC, datetime, date
 from pathlib import Path
 from typing import Any, Iterable
 from uuid import uuid4
@@ -10,6 +10,7 @@ from uuid import uuid4
 from paris_today_bot.config import BotConfig
 from paris_today_bot.models import BucketMarket, TradeAction
 from paris_today_bot.profile_loader import CityProfile
+from paris_today_bot.runtime_log import log_runtime
 
 
 @dataclass(slots=True)
@@ -87,6 +88,7 @@ class PaperBroker:
         actions: Iterable[TradeAction],
     ) -> dict[str, Any]:
         now = datetime.now(UTC).isoformat()
+        local_today = datetime.now(UTC).astimezone(profile.timezone).date()
         trades = self.store.load_trades()
         events: list[dict[str, Any]] = []
         market_by_id = {market.market_id: market for market in markets}
@@ -97,6 +99,8 @@ class PaperBroker:
         ]
         open_token_ids = {trade.token_id for trade in open_trades}
 
+        expired = self._close_expired(open_trades, local_today, now, events)
+        untradable = self._close_untradable(open_trades, market_by_id, now, events)
         closed = self._close_invalidated(open_trades, market_by_id, fair_values, now, events)
         opened = self._open_new(profile, trades, actions, market_by_id, fair_values, open_token_ids, now, events)
 
@@ -105,7 +109,7 @@ class PaperBroker:
 
         return {
             "opened": [asdict(trade) for trade in opened],
-            "closed": [asdict(trade) for trade in closed],
+            "closed": [asdict(trade) for trade in [*expired, *untradable, *closed]],
             "open_count": len([trade for trade in trades if trade.status == "OPEN"]),
             "realized_pnl": round(sum(float(trade.realized_pnl or 0.0) for trade in trades), 4),
         }
@@ -131,6 +135,34 @@ class PaperBroker:
         if updated:
             self.store.save_trades(trades, [])
         return {"updated": updated}
+
+    def _close_expired(
+        self,
+        open_trades: list[PaperTrade],
+        local_today: date,
+        now: str,
+        events: list[dict[str, Any]],
+    ) -> list[PaperTrade]:
+        closed: list[PaperTrade] = []
+        for trade in open_trades:
+            trade_day = self._question_date(trade.question)
+            if trade_day is None or trade_day >= local_today:
+                continue
+            exit_price = trade.last_price if trade.last_price is not None else 0.0
+            trade.status = "CLOSED"
+            trade.closed_at = now
+            trade.exit_price = exit_price
+            trade.exit_edge = trade.last_edge
+            trade.realized_pnl = (exit_price - trade.entry_price) * trade.shares
+            trade.close_reason = "Market day passed; position expired from active universe."
+            trade.updated_at = now
+            closed.append(trade)
+            events.append(self._event("CLOSE", trade, now))
+            log_runtime(
+                f"[paper] expired trade closed city={trade.city_name} side={trade.side} "
+                f"question={trade.question} exit={exit_price:.3f}"
+            )
+        return closed
 
     def _close_invalidated(
         self,
@@ -173,6 +205,48 @@ class PaperBroker:
             trade.close_reason = "Target edge disappeared or became negative."
             closed.append(trade)
             events.append(self._event("CLOSE", trade, now))
+            log_runtime(
+                f"[paper] invalidated trade closed city={trade.city_name} side={trade.side} "
+                f"question={trade.question} entry={trade.entry_price:.3f} exit={current_exit_price:.3f} "
+                f"pnl={unrealized_pnl:+.2f}"
+            )
+        return closed
+
+    def _close_untradable(
+        self,
+        open_trades: list[PaperTrade],
+        market_by_id: dict[str, BucketMarket],
+        now: str,
+        events: list[dict[str, Any]],
+    ) -> list[PaperTrade]:
+        closed: list[PaperTrade] = []
+        for trade in open_trades:
+            if trade.status != "OPEN":
+                continue
+            market = market_by_id.get(trade.market_id)
+            if market is None:
+                continue
+            current_entry_price = self._entry_price_for_side(market, trade.side)
+            current_exit_price = self._exit_price_for_side(market, trade.side)
+            if current_entry_price is None or current_exit_price is None:
+                continue
+            if current_entry_price > self.cfg.paper_min_contract_price:
+                continue
+            trade.last_price = current_exit_price
+            trade.last_unrealized_pnl = (current_exit_price - trade.entry_price) * trade.shares
+            trade.updated_at = now
+            trade.status = "CLOSED"
+            trade.closed_at = now
+            trade.exit_price = current_exit_price
+            trade.exit_edge = trade.last_edge
+            trade.realized_pnl = trade.last_unrealized_pnl
+            trade.close_reason = "Contract fell below tradable price floor."
+            closed.append(trade)
+            events.append(self._event("CLOSE", trade, now))
+            log_runtime(
+                f"[paper] untradable trade closed city={trade.city_name} side={trade.side} "
+                f"question={trade.question} current_entry={current_entry_price:.3f} exit={current_exit_price:.3f}"
+            )
         return closed
 
     def _open_new(
@@ -197,8 +271,21 @@ class PaperBroker:
                 continue
 
             side = "YES" if action.action == "BUY_YES" else "NO"
+            market_day = self._question_date(action.question)
+            local_today = datetime.now(UTC).astimezone(profile.timezone).date()
+            if market_day is not None and market_day != local_today:
+                log_runtime(
+                    f"[paper] skipped stale market city={profile.city_name} side={side} question={action.question}"
+                )
+                continue
             price = self._entry_price_for_side(market, side)
             if price is None or price <= 0:
+                continue
+            if price <= self.cfg.paper_min_contract_price:
+                log_runtime(
+                    f"[paper] skipped cheap contract city={profile.city_name} side={side} "
+                    f"question={action.question} price={price:.3f}"
+                )
                 continue
 
             fair_yes = fair_values.get(action.market_id, 0.0)
@@ -207,7 +294,7 @@ class PaperBroker:
             if edge < self.cfg.min_edge_to_open:
                 continue
 
-            size_usd = self._position_size(edge, price, market)
+            size_usd = self._position_size(trades, edge, fair, price, market, side)
             trade = PaperTrade(
                 id=uuid4().hex,
                 status="OPEN",
@@ -238,28 +325,54 @@ class PaperBroker:
             opened.append(trade)
             open_token_ids.add(action.token_id)
             events.append(self._event("OPEN", trade, now))
+            log_runtime(
+                f"[paper] opened city={trade.city_name} side={trade.side} question={trade.question} "
+                f"price={trade.entry_price:.3f} fair={trade.entry_fair:.3f} edge={trade.entry_edge:+.3f} "
+                f"size={trade.size_usd:.2f}"
+            )
         return opened
 
-    def _position_size(self, edge: float, price: float, market: BucketMarket) -> float:
-        if edge >= 0.35:
-            base = self.cfg.paper_max_trade_usd
-        elif edge >= 0.20:
-            base = min(self.cfg.paper_max_trade_usd, 10.0)
-        elif edge >= 0.12:
-            base = min(self.cfg.paper_max_trade_usd, 5.0)
-        else:
-            base = self.cfg.paper_min_trade_usd
+    def _position_size(
+        self,
+        trades: list[PaperTrade],
+        edge: float,
+        fair: float,
+        price: float,
+        market: BucketMarket,
+        side: str,
+    ) -> float:
+        bankroll = self._bankroll(trades)
+        full_kelly = max(0.0, min(1.0, edge / max(1e-6, 1.0 - price)))
+        base = bankroll * full_kelly * self.cfg.paper_kelly_fraction
 
-        spread = min(
-            item
-            for item in [self._spread_for_side(market, "YES"), self._spread_for_side(market, "NO")]
-            if item is not None
-        ) if self._spread_for_side(market, "YES") is not None or self._spread_for_side(market, "NO") is not None else None
-        if spread is not None and spread >= 0.10:
-            base *= 0.5
         if price <= 0.02:
-            base *= 0.5
-        return round(max(self.cfg.paper_min_trade_usd, min(self.cfg.paper_max_trade_usd, base)), 2)
+            base *= 0.15
+        elif price <= 0.05:
+            base *= 0.25
+        elif price <= 0.10:
+            base *= 0.40
+        elif price <= 0.20:
+            base *= 0.60
+
+        if fair < 0.20:
+            base *= 0.25
+        elif fair < 0.35:
+            base *= 0.50
+        elif fair < 0.50:
+            base *= 0.75
+
+        spread = self._spread_for_side(market, side)
+        if spread is not None and spread >= 0.10:
+            base *= 0.50
+        elif spread is not None and spread >= 0.05:
+            base *= 0.75
+
+        size = round(max(self.cfg.paper_min_trade_usd, min(self.cfg.paper_max_trade_usd, base)), 2)
+        return size
+
+    def _bankroll(self, trades: list[PaperTrade]) -> float:
+        realized = sum(float(trade.realized_pnl or 0.0) for trade in trades if trade.status == "CLOSED")
+        return max(100.0, self.store.load().get("start_balance_usd", self.cfg.paper_start_balance_usd) + realized)
 
     def _entry_price_for_side(self, market: BucketMarket, side: str) -> float | None:
         if side == "YES":
@@ -291,6 +404,16 @@ class PaperBroker:
             "pnl": trade.realized_pnl,
             "reason": trade.close_reason,
         }
+
+    def _question_date(self, question: str) -> date | None:
+        try:
+            marker = " on "
+            if marker not in question:
+                return None
+            raw = question.split(marker, 1)[1].rstrip("?").strip()
+            return datetime.strptime(raw, "%B %d, %Y").date()
+        except ValueError:
+            return None
 
 
 class PaperReporter:
