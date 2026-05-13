@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from collections.abc import Awaitable, Callable
 from dataclasses import dataclass
 from datetime import UTC, datetime
 
@@ -15,6 +16,8 @@ MENU_CLOSED = "Closed Trades"
 MENU_BALANCE = "Balance"
 MENU_STATUS = "Status"
 MENU_LOGS = "Logs"
+MENU_RESTART = "Restart Bot"
+MENU_CLEAR = "Clear History"
 
 
 @dataclass(slots=True)
@@ -27,9 +30,17 @@ class RuntimeStatus:
 
 
 class PaperTelegramService:
-    def __init__(self, cfg: BotConfig, runtime: RuntimeStatus) -> None:
+    def __init__(
+        self,
+        cfg: BotConfig,
+        runtime: RuntimeStatus,
+        restart_callback: Callable[[], Awaitable[str]] | None = None,
+        clear_history_callback: Callable[[], Awaitable[str]] | None = None,
+    ) -> None:
         self.cfg = cfg
         self.runtime = runtime
+        self.restart_callback = restart_callback
+        self.clear_history_callback = clear_history_callback
         self.application: Application | None = None
 
     async def start(self) -> None:
@@ -81,7 +92,8 @@ class PaperTelegramService:
         keyboard = [
             [MENU_OPEN, MENU_CLOSED],
             [MENU_BALANCE, MENU_STATUS],
-            [MENU_LOGS],
+            [MENU_LOGS, MENU_RESTART],
+            [MENU_CLEAR],
         ]
         reply_markup = ReplyKeyboardMarkup(keyboard, resize_keyboard=True)
         if update.message is not None:
@@ -111,6 +123,18 @@ class PaperTelegramService:
             return
         if text_cmd == MENU_LOGS:
             await self._safe_reply(update, self.runtime_log_text())
+            return
+        if text_cmd == MENU_RESTART:
+            if self.restart_callback is None:
+                await self._safe_reply(update, "Restart action is not configured.")
+                return
+            await self._safe_reply(update, await self.restart_callback())
+            return
+        if text_cmd == MENU_CLEAR:
+            if self.clear_history_callback is None:
+                await self._safe_reply(update, "Clear-history action is not configured.")
+                return
+            await self._safe_reply(update, await self.clear_history_callback())
             return
         await update.message.reply_text("Use the menu buttons.")
 

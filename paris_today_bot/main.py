@@ -135,32 +135,86 @@ async def run_paper_telegram_service(profile_name: str | None, interval_seconds:
         f"telegram_enabled={config.telegram_menu_enabled}"
     )
     runtime = RuntimeStatus(started_at=datetime.now(UTC).isoformat())
-    telegram = PaperTelegramService(config, runtime)
+    store = PaperStore(config.paper_state_file, config.paper_start_balance_usd)
+    cycle_lock = asyncio.Lock()
+
+    async def execute_cycle(trigger: str) -> dict:
+        runtime.last_cycle_started_at = datetime.now(UTC).isoformat()
+        log_runtime(f"[paper-service] cycle started trigger={trigger} at {runtime.last_cycle_started_at}")
+        if profile_name:
+            result = {
+                "results": [await run_for_profile(profile_name=profile_name, paper=True)],
+                "errors": [],
+            }
+            result["paper_summary"] = PaperReporter(config, store).summary()
+        else:
+            result = await run_all_profiles(paper=True)
+        runtime.last_result = result
+        runtime.last_error = None
+        runtime.last_cycle_finished_at = datetime.now(UTC).isoformat()
+        log_runtime(
+            f"[paper-service] cycle finished trigger={trigger} at {runtime.last_cycle_finished_at} "
+            f"results={len(result.get('results', []))} errors={len(result.get('errors', []))}"
+        )
+        return result
+
+    async def run_managed_cycle(trigger: str, *, notify: bool) -> dict | None:
+        if cycle_lock.locked():
+            log_runtime(f"[paper-service] cycle skipped trigger={trigger} reason=busy")
+            return None
+        async with cycle_lock:
+            result = await execute_cycle(trigger)
+            if notify:
+                for message in render_cycle_notifications(result):
+                    await telegram.push_message(message)
+            return result
+
+    async def restart_callback() -> str:
+        if cycle_lock.locked():
+            return "Restart skipped: a scan is already running."
+        try:
+            result = await run_managed_cycle("telegram_restart", notify=True)
+        except Exception as exc:
+            runtime.last_error = f"{type(exc).__name__}: {exc}"
+            runtime.last_cycle_finished_at = datetime.now(UTC).isoformat()
+            log_runtime(f"[paper-service] manual restart failed: {runtime.last_error}")
+            return f"Restart failed.\n{runtime.last_error}"
+        if result is None:
+            return "Restart skipped: a scan is already running."
+        summary = result.get("paper_summary", {})
+        return (
+            "Restart scan completed.\n"
+            f"Open trades: {summary.get('open_count', 0)}\n"
+            f"Closed trades: {summary.get('closed_count', 0)}\n"
+            f"Realized PnL: {float(summary.get('realized_pnl', 0.0)):+.2f}$\n"
+            f"Unrealized PnL: {float(summary.get('unrealized_pnl', 0.0)):+.2f}$"
+        )
+
+    async def clear_history_callback() -> str:
+        if cycle_lock.locked():
+            return "Clear-history skipped: wait for the current scan to finish."
+        store.reset()
+        runtime.last_result = {
+            "results": [],
+            "errors": [],
+            "paper_summary": PaperReporter(config, store).summary(),
+        }
+        runtime.last_error = None
+        log_runtime("[paper-service] paper history reset from telegram")
+        return "Paper history fully cleared. Open and closed trades were removed."
+
+    telegram = PaperTelegramService(
+        config,
+        runtime,
+        restart_callback=restart_callback,
+        clear_history_callback=clear_history_callback,
+    )
     await telegram.start()
     await telegram.push_message("Paris today paper bot started.")
     try:
         while True:
-            runtime.last_cycle_started_at = datetime.now(UTC).isoformat()
-            log_runtime(f"[paper-service] cycle started at {runtime.last_cycle_started_at}")
             try:
-                if profile_name:
-                    result = {
-                        "results": [await run_for_profile(profile_name=profile_name, paper=True)],
-                        "errors": [],
-                    }
-                    store = PaperStore(config.paper_state_file, config.paper_start_balance_usd)
-                    result["paper_summary"] = PaperReporter(config, store).summary()
-                else:
-                    result = await run_all_profiles(paper=True)
-                runtime.last_result = result
-                runtime.last_error = None
-                runtime.last_cycle_finished_at = datetime.now(UTC).isoformat()
-                log_runtime(
-                    f"[paper-service] cycle finished at {runtime.last_cycle_finished_at} "
-                    f"results={len(result.get('results', []))} errors={len(result.get('errors', []))}"
-                )
-                for message in render_cycle_notifications(result):
-                    await telegram.push_message(message)
+                await run_managed_cycle("scheduler", notify=True)
             except Exception as exc:
                 runtime.last_error = f"{type(exc).__name__}: {exc}"
                 runtime.last_cycle_finished_at = datetime.now(UTC).isoformat()

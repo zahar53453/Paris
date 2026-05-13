@@ -74,6 +74,15 @@ class PaperStore:
         payload["events"] = payload.get("events", []) + events
         self.save(payload)
 
+    def reset(self) -> None:
+        self.save(
+            {
+                "start_balance_usd": self.start_balance_usd,
+                "trades": [],
+                "events": [],
+            }
+        )
+
 
 class PaperBroker:
     def __init__(self, cfg: BotConfig, store: PaperStore) -> None:
