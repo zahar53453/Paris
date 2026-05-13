@@ -76,9 +76,14 @@ class CityMarketClient:
         if not clean_ids:
             return {}
         async with httpx.AsyncClient(timeout=8.0) as client:
-            response = await client.post(f"{self.cfg.clob_api_url}/prices", json={"token_ids": clean_ids})
-            response.raise_for_status()
-            payload = response.json()
+            payload: Any | None = None
+            for body in ({"token_ids": clean_ids}, {"tokenIds": clean_ids}):
+                response = await client.post(f"{self.cfg.clob_api_url}/prices", json=body)
+                if response.status_code == 200:
+                    payload = response.json()
+                    break
+            if payload is None:
+                return {}
         return self._parse_prices_payload(payload)
 
     async def fetch_market_states(self, market_ids: list[str]) -> dict[str, dict[str, Any]]:
