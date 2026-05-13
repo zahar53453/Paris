@@ -46,7 +46,7 @@ async def run_for_profile(
     paper_result = None
     if paper:
         broker = paper_broker or PaperBroker(config, PaperStore(config.paper_state_file, config.paper_start_balance_usd))
-        paper_result = broker.process_profile(profile, market.markets, decision.fair_values, actions)
+        paper_result = broker.process_profile(profile, weather, market.markets, decision.fair_values, actions)
 
     result = {
         "profile": {
