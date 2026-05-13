@@ -71,77 +71,35 @@ class CityMarketClient:
             books_by_token[token_id] = result
         return books_by_token
 
-    async def fetch_prices_by_token(self, token_ids: list[str]) -> dict[str, float]:
-        clean_ids = [token_id for token_id in token_ids if token_id]
-        if not clean_ids:
-            return {}
-        async with httpx.AsyncClient(timeout=8.0) as client:
-            payload: Any | None = None
-            for body in ({"token_ids": clean_ids}, {"tokenIds": clean_ids}):
-                response = await client.post(f"{self.cfg.clob_api_url}/prices", json=body)
-                if response.status_code == 200:
-                    payload = response.json()
-                    break
-            if payload is None:
-                return {}
-        return self._parse_prices_payload(payload)
-
-    async def fetch_market_states(self, market_ids: list[str]) -> dict[str, dict[str, Any]]:
-        clean_ids = [market_id for market_id in market_ids if market_id]
-        if not clean_ids:
+    async def fetch_event_market_states(self, event_slugs: list[str]) -> dict[str, dict[str, Any]]:
+        clean_slugs = [slug for slug in event_slugs if slug]
+        if not clean_slugs:
             return {}
         async with httpx.AsyncClient(timeout=12.0) as client:
-            tasks = {market_id: self._fetch_market_state(client, market_id) for market_id in clean_ids}
+            tasks = {slug: self._fetch_event_market_state(client, slug) for slug in clean_slugs}
             results = await asyncio.gather(*tasks.values(), return_exceptions=True)
         states: dict[str, dict[str, Any]] = {}
-        for market_id, result in zip(tasks.keys(), results):
-            if isinstance(result, Exception) or result is None:
+        for slug, result in zip(tasks.keys(), results):
+            if isinstance(result, Exception):
                 continue
-            states[market_id] = result
+            for market_id, state in result.items():
+                states[market_id] = state
         return states
 
-    async def fetch_market_states_by_token(self, token_ids: list[str]) -> dict[str, dict[str, Any]]:
-        clean_ids = [token_id for token_id in token_ids if token_id]
-        if not clean_ids:
-            return {}
-        async with httpx.AsyncClient(timeout=12.0) as client:
-            states = await self._fetch_market_states_by_tokens(client, clean_ids)
-        return states
-
-    async def _fetch_market_state(self, client: httpx.AsyncClient, market_id: str) -> dict[str, Any] | None:
-        response = await client.get(f"{self.cfg.gamma_api_url}/markets", params={"condition_id": market_id})
+    async def _fetch_event_market_state(self, client: httpx.AsyncClient, event_slug: str) -> dict[str, dict[str, Any]]:
+        response = await client.get(f"{self.cfg.gamma_api_url}/events", params={"slug": event_slug})
         response.raise_for_status()
         payload = response.json()
         if not payload:
-            return None
-        market = payload[0]
-        return self._parse_gamma_market_state(market)
-
-    async def _fetch_market_states_by_tokens(
-        self,
-        client: httpx.AsyncClient,
-        token_ids: list[str],
-    ) -> dict[str, dict[str, Any]]:
-        query = ",".join(token_ids)
-        response: httpx.Response | None = None
-        for params in ({"clob_token_ids": query}, {"clobTokenIds": query}):
-            candidate = await client.get(f"{self.cfg.gamma_api_url}/markets", params=params)
-            if candidate.status_code == 200:
-                response = candidate
-                break
-        if response is None:
             return {}
-        payload = response.json()
-        if not isinstance(payload, list):
-            payload = [payload]
-        states_by_token: dict[str, dict[str, Any]] = {}
-        for market in payload:
-            state = self._parse_gamma_market_state(market)
-            for token_id in state.get("prices_by_token", {}).keys():
-                states_by_token[str(token_id)] = state
-        return states_by_token
+        event = payload[0]
+        states: dict[str, dict[str, Any]] = {}
+        for market in event.get("markets", []):
+            state = self._parse_event_market_state(market)
+            states[state["market_id"]] = state
+        return states
 
-    def _parse_gamma_market_state(self, market: dict[str, Any]) -> dict[str, Any]:
+    def _parse_event_market_state(self, market: dict[str, Any]) -> dict[str, Any]:
         token_ids = market.get("clobTokenIds", [])
         outcome_prices = market.get("outcomePrices", [])
         if isinstance(token_ids, str):
@@ -156,10 +114,14 @@ class CityMarketClient:
                 continue
         return {
             "market_id": str(market.get("conditionId") or market.get("condition_id") or market.get("id") or ""),
+            "slug": str(market.get("slug", "")),
             "active": bool(market.get("active", False)),
             "closed": bool(market.get("closed", False)),
             "archived": bool(market.get("archived", False)),
             "accepting_orders": bool(market.get("acceptingOrders", False)),
+            "uma_resolution_status": str(market.get("umaResolutionStatus") or "").lower(),
+            "automatically_resolved": bool(market.get("automaticallyResolved", False)),
+            "resolved_by": market.get("resolvedBy"),
             "prices_by_token": prices_by_token,
         }
 
@@ -274,26 +236,15 @@ class CityMarketClient:
         except (TypeError, ValueError):
             return None
 
-    def _parse_prices_payload(self, payload: Any) -> dict[str, float]:
-        prices: dict[str, float] = {}
-        if isinstance(payload, dict):
-            for token_id, value in payload.items():
-                try:
-                    prices[str(token_id)] = float(value)
-                except (TypeError, ValueError):
-                    continue
-            return prices
-        if not isinstance(payload, list):
-            return prices
-        for item in payload:
-            if not isinstance(item, dict):
-                continue
-            token_id = item.get("token_id") or item.get("tokenId")
-            value = item.get("price")
-            if token_id is None or value is None:
-                continue
-            try:
-                prices[str(token_id)] = float(value)
-            except (TypeError, ValueError):
-                continue
-        return prices
+    def event_slug_for_question(self, question: str) -> str | None:
+        match = re.search(r"on ([A-Za-z]+) (\d{1,2})\?", question)
+        if not match:
+            return None
+        month_name = match.group(1).lower()
+        day = int(match.group(2))
+        year_match = re.search(r"on [A-Za-z]+ \d{1,2}(?:,)? (\d{4})", question)
+        if year_match:
+            year = int(year_match.group(1))
+        else:
+            year = datetime.now(UTC).astimezone(self.profile.timezone).year
+        return f"highest-temperature-in-{self.profile.city_name.lower()}-on-{month_name}-{day}-{year}"

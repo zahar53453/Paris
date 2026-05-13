@@ -46,7 +46,7 @@ async def run_for_profile(
     paper_result = None
     if paper:
         broker = paper_broker or PaperBroker(config, PaperStore(config.paper_state_file, config.paper_start_balance_usd))
-        paper_result = broker.process_profile(profile, weather, market.markets, decision.fair_values, actions)
+        paper_result = broker.process_profile(profile, market.markets, decision.fair_values, actions)
 
     result = {
         "profile": {
@@ -246,22 +246,23 @@ async def refresh_paper_prices() -> dict:
             profile_trades = [trade for trade in open_trades if trade.profile_slug == profile_slug]
             client = CityMarketClient(config, profile)
             token_ids = [trade.token_id for trade in profile_trades]
-            market_ids = [trade.market_id for trade in profile_trades]
             books_by_token = await client.fetch_books_by_token(token_ids)
-            token_prices = await client.fetch_prices_by_token(token_ids)
-            market_states = await client.fetch_market_states(market_ids)
-            token_market_states = await client.fetch_market_states_by_token(token_ids)
+            event_slugs = sorted(
+                {
+                    event_slug
+                    for trade in profile_trades
+                    if (event_slug := client.event_slug_for_question(trade.question))
+                }
+            )
+            closed_market_states = await client.fetch_event_market_states(event_slugs)
             item = broker.mark_to_market_by_books(
                 profile,
                 books_by_token,
-                token_prices=token_prices,
-                market_states=market_states,
-                token_market_states=token_market_states,
+                closed_market_states=closed_market_states,
             )
             log_runtime(
                 f"[paper-refresh] profile={profile.slug} open={len(profile_trades)} "
-                f"books={len(books_by_token)} prices={len(token_prices)} "
-                f"states_by_market={len(market_states)} states_by_token={len(token_market_states)} "
+                f"books={len(books_by_token)} closed_states={len(closed_market_states)} "
                 f"updated={item.get('updated', 0)} closed={item.get('closed', 0)}"
             )
             refreshed.append({"profile": profile_slug, **item})

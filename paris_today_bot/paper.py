@@ -8,7 +8,7 @@ from typing import Any, Iterable
 from uuid import uuid4
 
 from paris_today_bot.config import BotConfig
-from paris_today_bot.models import BucketMarket, TradeAction, WeatherSnapshot
+from paris_today_bot.models import BucketMarket, TradeAction
 from paris_today_bot.profile_loader import CityProfile
 from paris_today_bot.runtime_log import log_runtime
 
@@ -92,7 +92,6 @@ class PaperBroker:
     def process_profile(
         self,
         profile: CityProfile,
-        weather: WeatherSnapshot,
         markets: Iterable[BucketMarket],
         fair_values: dict[str, float],
         actions: Iterable[TradeAction],
@@ -110,13 +109,6 @@ class PaperBroker:
         open_token_ids = {trade.token_id for trade in open_trades}
 
         expired = self._close_expired(open_trades, local_today, now, events)
-        observed = self._close_determined_by_observation(
-            open_trades,
-            market_by_id,
-            weather.obs_max_so_far,
-            now,
-            events,
-        )
         take_profit = self._close_take_profit(open_trades, market_by_id, now, events)
         untradable = self._close_untradable(open_trades, market_by_id, now, events)
         closed = self._close_invalidated(open_trades, market_by_id, fair_values, now, events)
@@ -127,7 +119,7 @@ class PaperBroker:
 
         return {
             "opened": [asdict(trade) for trade in opened],
-            "closed": [asdict(trade) for trade in [*expired, *observed, *take_profit, *untradable, *closed]],
+            "closed": [asdict(trade) for trade in [*expired, *take_profit, *untradable, *closed]],
             "open_count": len([trade for trade in trades if trade.status == "OPEN"]),
             "realized_pnl": round(sum(float(trade.realized_pnl or 0.0) for trade in trades), 4),
         }
@@ -158,9 +150,7 @@ class PaperBroker:
         self,
         profile: CityProfile,
         books_by_token: dict[str, dict[str, float | None]],
-        token_prices: dict[str, float] | None = None,
-        market_states: dict[str, dict[str, Any]] | None = None,
-        token_market_states: dict[str, dict[str, Any]] | None = None,
+        closed_market_states: dict[str, dict[str, Any]] | None = None,
         now: str | None = None,
     ) -> dict[str, Any]:
         timestamp = now or datetime.now(UTC).isoformat()
@@ -172,7 +162,7 @@ class PaperBroker:
             if trade.status != "OPEN" or trade.profile_slug != profile.slug:
                 continue
             book = books_by_token.get(trade.token_id)
-            state = (market_states or {}).get(trade.market_id) or (token_market_states or {}).get(trade.token_id, {})
+            state = (closed_market_states or {}).get(trade.market_id, {})
             resolved_price = self._resolved_price_for_token(state, trade.token_id)
             if resolved_price is not None:
                 trade.last_price = resolved_price
@@ -193,48 +183,13 @@ class PaperBroker:
                 )
                 continue
             if book is None:
-                current_price = (token_prices or {}).get(trade.token_id)
-                if current_price is None:
-                    log_runtime(
-                        f"[paper] no refresh data city={trade.city_name} side={trade.side} "
-                        f"question={trade.question} token={trade.token_id[:10]}"
-                    )
-                    continue
-                trade.last_price = float(current_price)
-                trade.last_unrealized_pnl = (float(current_price) - trade.entry_price) * trade.shares
-                trade.updated_at = timestamp
-                updated += 1
-                if float(current_price) >= 0.99:
-                    trade.status = "CLOSED"
-                    trade.closed_at = timestamp
-                    trade.exit_price = float(current_price)
-                    trade.exit_edge = trade.last_edge
-                    trade.realized_pnl = trade.last_unrealized_pnl
-                    trade.close_reason = "Contract reached forced take-profit threshold >= 0.99."
-                    events.append(self._event("CLOSE", trade, timestamp))
-                    closed += 1
-                    log_runtime(
-                        f"[paper] take-profit trade closed via /prices city={trade.city_name} side={trade.side} "
-                        f"question={trade.question} exit={float(current_price):.3f}"
-                    )
-                elif float(current_price) <= self.cfg.paper_min_contract_price:
-                    trade.status = "CLOSED"
-                    trade.closed_at = timestamp
-                    trade.exit_price = float(current_price)
-                    trade.exit_edge = trade.last_edge
-                    trade.realized_pnl = trade.last_unrealized_pnl
-                    trade.close_reason = "Contract fell below tradable price floor during mark-to-market."
-                    events.append(self._event("CLOSE", trade, timestamp))
-                    closed += 1
-                    log_runtime(
-                        f"[paper] floor-close trade closed via /prices city={trade.city_name} side={trade.side} "
-                        f"question={trade.question} price={float(current_price):.3f}"
-                    )
-                continue
-            if book is None:
+                log_runtime(
+                    f"[paper] no refresh data city={trade.city_name} side={trade.side} "
+                    f"question={trade.question} token={trade.token_id[:10]}"
+                )
                 continue
             exit_price = book.get("best_bid")
-            entry_price_now = book.get("best_ask") if trade.side == "YES" else book.get("best_ask")
+            entry_price_now = book.get("best_ask")
             if exit_price is None:
                 continue
             trade.last_price = float(exit_price)
@@ -274,15 +229,17 @@ class PaperBroker:
     def _resolved_price_for_token(self, state: dict[str, Any], token_id: str) -> float | None:
         if not state:
             return None
+        is_closed = bool(state.get("closed"))
+        is_resolved = str(state.get("uma_resolution_status") or "").lower() == "resolved"
+        auto_resolved = bool(state.get("automatically_resolved"))
+        accepting_orders = bool(state.get("accepting_orders", True))
+        if not is_closed and accepting_orders and not is_resolved and not auto_resolved:
+            return None
         prices_by_token = state.get("prices_by_token", {})
         if not isinstance(prices_by_token, dict) or not prices_by_token:
             return None
         direct_price = prices_by_token.get(token_id)
         if direct_price is None:
-            return None
-        has_winner = any(float(price) >= 0.99 for price in prices_by_token.values())
-        is_inactive = bool(state.get("closed")) or not bool(state.get("active", True)) or bool(state.get("archived"))
-        if not is_inactive and not has_winner:
             return None
         return float(direct_price)
 
@@ -359,47 +316,6 @@ class PaperBroker:
                 f"[paper] invalidated trade closed city={trade.city_name} side={trade.side} "
                 f"question={trade.question} entry={trade.entry_price:.3f} exit={current_exit_price:.3f} "
                 f"pnl={unrealized_pnl:+.2f}"
-            )
-        return closed
-
-    def _close_determined_by_observation(
-        self,
-        open_trades: list[PaperTrade],
-        market_by_id: dict[str, BucketMarket],
-        obs_max_so_far: int | None,
-        now: str,
-        events: list[dict[str, Any]],
-    ) -> list[PaperTrade]:
-        if obs_max_so_far is None:
-            return []
-        closed: list[PaperTrade] = []
-        for trade in open_trades:
-            if trade.status != "OPEN":
-                continue
-            market = market_by_id.get(trade.market_id)
-            if market is None or market.temperature_c is None:
-                continue
-
-            resolved_price = self._observation_resolved_price(trade.side, market, obs_max_so_far)
-            if resolved_price is None:
-                continue
-
-            trade.last_price = resolved_price
-            trade.last_unrealized_pnl = (resolved_price - trade.entry_price) * trade.shares
-            trade.updated_at = now
-            trade.status = "CLOSED"
-            trade.closed_at = now
-            trade.exit_price = resolved_price
-            trade.exit_edge = trade.last_edge
-            trade.realized_pnl = trade.last_unrealized_pnl
-            trade.close_reason = (
-                f"Observed max {obs_max_so_far}C already determines this market outcome."
-            )
-            closed.append(trade)
-            events.append(self._event("CLOSE", trade, now))
-            log_runtime(
-                f"[paper] observation-settled city={trade.city_name} side={trade.side} "
-                f"question={trade.question} obs_max={obs_max_so_far} final={resolved_price:.3f}"
             )
         return closed
 
@@ -616,21 +532,6 @@ class PaperBroker:
             return max(0.0, market.no_best_ask - market.no_best_bid)
         return None
 
-    def _observation_resolved_price(self, side: str, market: BucketMarket, obs_max_so_far: int) -> float | None:
-        threshold = market.temperature_c
-        if market.tail == "exact":
-            if obs_max_so_far > threshold:
-                return 0.0 if side == "YES" else 1.0
-            return None
-        if market.tail == "or_lower":
-            if obs_max_so_far > threshold:
-                return 0.0 if side == "YES" else 1.0
-            return None
-        if market.tail == "or_higher":
-            if obs_max_so_far >= threshold:
-                return 1.0 if side == "YES" else 0.0
-            return None
-        return None
 
     def _event(self, event_type: str, trade: PaperTrade, timestamp: str) -> dict[str, Any]:
         return {
