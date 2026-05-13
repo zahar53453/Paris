@@ -71,6 +71,47 @@ class CityMarketClient:
             books_by_token[token_id] = result
         return books_by_token
 
+    async def fetch_market_states(self, market_ids: list[str]) -> dict[str, dict[str, Any]]:
+        clean_ids = [market_id for market_id in market_ids if market_id]
+        if not clean_ids:
+            return {}
+        async with httpx.AsyncClient(timeout=12.0) as client:
+            tasks = {market_id: self._fetch_market_state(client, market_id) for market_id in clean_ids}
+            results = await asyncio.gather(*tasks.values(), return_exceptions=True)
+        states: dict[str, dict[str, Any]] = {}
+        for market_id, result in zip(tasks.keys(), results):
+            if isinstance(result, Exception) or result is None:
+                continue
+            states[market_id] = result
+        return states
+
+    async def _fetch_market_state(self, client: httpx.AsyncClient, market_id: str) -> dict[str, Any] | None:
+        response = await client.get(f"{self.cfg.gamma_api_url}/markets", params={"condition_id": market_id})
+        response.raise_for_status()
+        payload = response.json()
+        if not payload:
+            return None
+        market = payload[0]
+        token_ids = market.get("clobTokenIds", [])
+        outcome_prices = market.get("outcomePrices", [])
+        if isinstance(token_ids, str):
+            token_ids = json.loads(token_ids)
+        if isinstance(outcome_prices, str):
+            outcome_prices = json.loads(outcome_prices)
+        prices_by_token: dict[str, float] = {}
+        for token_id, price in zip(token_ids, outcome_prices, strict=False):
+            try:
+                prices_by_token[str(token_id)] = float(price)
+            except (TypeError, ValueError):
+                continue
+        return {
+            "active": bool(market.get("active", False)),
+            "closed": bool(market.get("closed", False)),
+            "archived": bool(market.get("archived", False)),
+            "accepting_orders": bool(market.get("acceptingOrders", False)),
+            "prices_by_token": prices_by_token,
+        }
+
     def _extract_title_date(self, title: str) -> str | None:
         m = re.search(r"on ([A-Za-z]+ \d{1,2}, \d{4})", title)
         if not m:

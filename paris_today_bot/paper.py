@@ -150,6 +150,7 @@ class PaperBroker:
         self,
         profile: CityProfile,
         books_by_token: dict[str, dict[str, float | None]],
+        market_states: dict[str, dict[str, Any]] | None = None,
         now: str | None = None,
     ) -> dict[str, Any]:
         timestamp = now or datetime.now(UTC).isoformat()
@@ -161,6 +162,26 @@ class PaperBroker:
             if trade.status != "OPEN" or trade.profile_slug != profile.slug:
                 continue
             book = books_by_token.get(trade.token_id)
+            state = (market_states or {}).get(trade.market_id, {})
+            resolved_price = self._resolved_price_for_token(state, trade.token_id)
+            if resolved_price is not None:
+                trade.last_price = resolved_price
+                trade.last_unrealized_pnl = (resolved_price - trade.entry_price) * trade.shares
+                trade.updated_at = timestamp
+                trade.status = "CLOSED"
+                trade.closed_at = timestamp
+                trade.exit_price = resolved_price
+                trade.exit_edge = trade.last_edge
+                trade.realized_pnl = trade.last_unrealized_pnl
+                trade.close_reason = "Market resolved; paper trade settled from final outcome prices."
+                events.append(self._event("CLOSE", trade, timestamp))
+                updated += 1
+                closed += 1
+                log_runtime(
+                    f"[paper] resolved trade closed city={trade.city_name} side={trade.side} "
+                    f"question={trade.question} final={resolved_price:.3f}"
+                )
+                continue
             if book is None:
                 continue
             exit_price = book.get("best_bid")
@@ -200,6 +221,21 @@ class PaperBroker:
         if updated or events:
             self.store.save_trades(trades, events)
         return {"updated": updated, "closed": closed}
+
+    def _resolved_price_for_token(self, state: dict[str, Any], token_id: str) -> float | None:
+        if not state:
+            return None
+        prices_by_token = state.get("prices_by_token", {})
+        if not isinstance(prices_by_token, dict) or not prices_by_token:
+            return None
+        direct_price = prices_by_token.get(token_id)
+        if direct_price is None:
+            return None
+        has_winner = any(float(price) >= 0.99 for price in prices_by_token.values())
+        is_inactive = bool(state.get("closed")) or not bool(state.get("active", True)) or bool(state.get("archived"))
+        if not is_inactive and not has_winner:
+            return None
+        return float(direct_price)
 
     def _close_expired(
         self,

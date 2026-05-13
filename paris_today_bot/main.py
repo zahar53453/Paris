@@ -143,14 +143,17 @@ async def run_paper_telegram_service(profile_name: str | None, interval_seconds:
     async def execute_cycle(trigger: str) -> dict:
         runtime.last_cycle_started_at = datetime.now(UTC).isoformat()
         log_runtime(f"[paper-service] cycle started trigger={trigger} at {runtime.last_cycle_started_at}")
+        refresh_state = await refresh_paper_prices()
         if profile_name:
             result = {
                 "results": [await run_for_profile(profile_name=profile_name, paper=True)],
                 "errors": [],
             }
             result["paper_summary"] = PaperReporter(config, store).summary()
+            result["paper_city_stats"] = PaperReporter(config, store).city_open_stats()
         else:
             result = await run_all_profiles(paper=True)
+        result["paper_refresh"] = refresh_state
         runtime.last_result = result
         runtime.last_error = None
         runtime.last_cycle_finished_at = datetime.now(UTC).isoformat()
@@ -243,7 +246,8 @@ async def refresh_paper_prices() -> dict:
             profile_trades = [trade for trade in open_trades if trade.profile_slug == profile_slug]
             client = CityMarketClient(config, profile)
             books_by_token = await client.fetch_books_by_token([trade.token_id for trade in profile_trades])
-            item = broker.mark_to_market_by_books(profile, books_by_token)
+            market_states = await client.fetch_market_states([trade.market_id for trade in profile_trades])
+            item = broker.mark_to_market_by_books(profile, books_by_token, market_states=market_states)
             refreshed.append({"profile": profile_slug, **item})
         except Exception as exc:
             errors.append({"profile": profile_slug, "error": f"{type(exc).__name__}: {exc}"})
