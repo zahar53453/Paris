@@ -8,7 +8,7 @@ from typing import Any, Iterable
 from uuid import uuid4
 
 from paris_today_bot.config import BotConfig
-from paris_today_bot.models import BucketMarket, TradeAction
+from paris_today_bot.models import BucketMarket, TradeAction, WeatherSnapshot
 from paris_today_bot.profile_loader import CityProfile
 from paris_today_bot.runtime_log import log_runtime
 
@@ -92,6 +92,7 @@ class PaperBroker:
     def process_profile(
         self,
         profile: CityProfile,
+        weather: WeatherSnapshot,
         markets: Iterable[BucketMarket],
         fair_values: dict[str, float],
         actions: Iterable[TradeAction],
@@ -109,6 +110,13 @@ class PaperBroker:
         open_token_ids = {trade.token_id for trade in open_trades}
 
         expired = self._close_expired(open_trades, local_today, now, events)
+        observed = self._close_determined_by_observation(
+            open_trades,
+            market_by_id,
+            weather.obs_max_so_far,
+            now,
+            events,
+        )
         take_profit = self._close_take_profit(open_trades, market_by_id, now, events)
         untradable = self._close_untradable(open_trades, market_by_id, now, events)
         closed = self._close_invalidated(open_trades, market_by_id, fair_values, now, events)
@@ -119,7 +127,7 @@ class PaperBroker:
 
         return {
             "opened": [asdict(trade) for trade in opened],
-            "closed": [asdict(trade) for trade in [*expired, *take_profit, *untradable, *closed]],
+            "closed": [asdict(trade) for trade in [*expired, *observed, *take_profit, *untradable, *closed]],
             "open_count": len([trade for trade in trades if trade.status == "OPEN"]),
             "realized_pnl": round(sum(float(trade.realized_pnl or 0.0) for trade in trades), 4),
         }
@@ -354,6 +362,47 @@ class PaperBroker:
             )
         return closed
 
+    def _close_determined_by_observation(
+        self,
+        open_trades: list[PaperTrade],
+        market_by_id: dict[str, BucketMarket],
+        obs_max_so_far: int | None,
+        now: str,
+        events: list[dict[str, Any]],
+    ) -> list[PaperTrade]:
+        if obs_max_so_far is None:
+            return []
+        closed: list[PaperTrade] = []
+        for trade in open_trades:
+            if trade.status != "OPEN":
+                continue
+            market = market_by_id.get(trade.market_id)
+            if market is None or market.temperature_c is None:
+                continue
+
+            resolved_price = self._observation_resolved_price(trade.side, market, obs_max_so_far)
+            if resolved_price is None:
+                continue
+
+            trade.last_price = resolved_price
+            trade.last_unrealized_pnl = (resolved_price - trade.entry_price) * trade.shares
+            trade.updated_at = now
+            trade.status = "CLOSED"
+            trade.closed_at = now
+            trade.exit_price = resolved_price
+            trade.exit_edge = trade.last_edge
+            trade.realized_pnl = trade.last_unrealized_pnl
+            trade.close_reason = (
+                f"Observed max {obs_max_so_far}C already determines this market outcome."
+            )
+            closed.append(trade)
+            events.append(self._event("CLOSE", trade, now))
+            log_runtime(
+                f"[paper] observation-settled city={trade.city_name} side={trade.side} "
+                f"question={trade.question} obs_max={obs_max_so_far} final={resolved_price:.3f}"
+            )
+        return closed
+
     def _close_untradable(
         self,
         open_trades: list[PaperTrade],
@@ -565,6 +614,22 @@ class PaperBroker:
             return max(0.0, market.best_ask - market.best_bid)
         if side == "NO" and market.no_best_ask is not None and market.no_best_bid is not None:
             return max(0.0, market.no_best_ask - market.no_best_bid)
+        return None
+
+    def _observation_resolved_price(self, side: str, market: BucketMarket, obs_max_so_far: int) -> float | None:
+        threshold = market.temperature_c
+        if market.tail == "exact":
+            if obs_max_so_far > threshold:
+                return 0.0 if side == "YES" else 1.0
+            return None
+        if market.tail == "or_lower":
+            if obs_max_so_far > threshold:
+                return 0.0 if side == "YES" else 1.0
+            return None
+        if market.tail == "or_higher":
+            if obs_max_so_far >= threshold:
+                return 1.0 if side == "YES" else 0.0
+            return None
         return None
 
     def _event(self, event_type: str, trade: PaperTrade, timestamp: str) -> dict[str, Any]:
