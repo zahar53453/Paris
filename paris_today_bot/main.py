@@ -88,7 +88,8 @@ async def run_for_profile(
 async def run_all_profiles(paper: bool = False) -> dict:
     results: list[dict] = []
     errors: list[dict] = []
-    paper_broker = PaperBroker(config, PaperStore(config.paper_state_file, config.paper_start_balance_usd)) if paper else None
+    paper_store = PaperStore(config.paper_state_file, config.paper_start_balance_usd) if paper else None
+    paper_broker = PaperBroker(config, paper_store) if paper and paper_store is not None else None
     for profile in list_profiles():
         try:
             result = await run_for_profile(profile_name=str(profile.path), paper=paper, paper_broker=paper_broker)
@@ -109,8 +110,9 @@ async def run_all_profiles(paper: bool = False) -> dict:
         "errors": errors,
     }
     if paper:
-        store = PaperStore(config.paper_state_file, config.paper_start_balance_usd)
-        response["paper_summary"] = PaperReporter(config, store).summary()
+        reporter = PaperReporter(config, paper_store or PaperStore(config.paper_state_file, config.paper_start_balance_usd))
+        response["paper_summary"] = reporter.summary()
+        response["paper_city_stats"] = reporter.city_open_stats()
     return response
 
 
@@ -252,6 +254,7 @@ async def build_paper_report(refresh_prices: bool = True) -> dict:
     reporter = PaperReporter(config, store)
     return {
         "summary": reporter.summary(),
+        "city_stats": reporter.city_open_stats(),
         "open_trades": reporter.open_trades(),
         "closed_trades": reporter.closed_trades(),
         "refresh": refresh_result,

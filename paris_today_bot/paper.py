@@ -447,6 +447,24 @@ class PaperReporter:
             "closed_count": len(closed_trades),
         }
 
+    def city_open_stats(self) -> dict[str, dict[str, float | int]]:
+        stats: dict[str, dict[str, float | int]] = {}
+        for trade in self.store.load_trades():
+            if trade.status != "OPEN":
+                continue
+            item = stats.setdefault(
+                trade.profile_slug,
+                {
+                    "open_count": 0,
+                    "unrealized_pnl": 0.0,
+                    "exposure_usd": 0.0,
+                },
+            )
+            item["open_count"] = int(item["open_count"]) + 1
+            item["unrealized_pnl"] = float(item["unrealized_pnl"]) + float(trade.last_unrealized_pnl or 0.0)
+            item["exposure_usd"] = float(item["exposure_usd"]) + float(trade.size_usd or 0.0)
+        return stats
+
     def open_trades(self) -> list[dict[str, Any]]:
         return [asdict(trade) for trade in self.store.load_trades() if trade.status == "OPEN"]
 

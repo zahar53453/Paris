@@ -140,6 +140,7 @@ class PaperTelegramService:
 
     def status_text(self) -> str:
         summary = self.runtime.last_result.get("paper_summary") if self.runtime.last_result else None
+        city_stats = (self.runtime.last_result or {}).get("paper_city_stats", {})
         lines = ["Paper bot status"]
         if self.runtime.started_at:
             lines.append(f"Started: {self.runtime.started_at}")
@@ -156,6 +157,16 @@ class PaperTelegramService:
             lines.append(f"Last error: {self.runtime.last_error}")
         else:
             lines.append("Last error: none")
+        for item in (self.runtime.last_result or {}).get("results", []):
+            profile = item.get("profile", {})
+            weather = item.get("weather", {})
+            decision = item.get("decision", {})
+            stat = city_stats.get(profile.get("slug"), {})
+            lines.append(
+                f"{profile.get('city_name')}: max {decision.get('projected_max')}C | "
+                f"obs {weather.get('obs_current')}C | city_open {int(stat.get('open_count', 0))} | "
+                f"city_uPnL {float(stat.get('unrealized_pnl', 0.0)):+.2f}$"
+            )
         return "\n".join(lines)
 
     def runtime_log_text(self, limit_lines: int = 60) -> str:
@@ -225,14 +236,17 @@ def render_cycle_notifications(result: dict) -> list[str]:
                 )
             )
     summary = result.get("paper_summary", {})
+    city_stats = result.get("paper_city_stats", {})
     city_lines = []
     for item in result.get("results", []):
         profile = item.get("profile", {})
         decision = item.get("decision", {})
         weather = item.get("weather", {})
+        stat = city_stats.get(profile.get("slug"), {})
         city_lines.append(
             f"{profile.get('city_name')}: max {decision.get('projected_max')}C | "
-            f"obs {weather.get('obs_current')}C | open {int((item.get('paper') or {}).get('open_count', 0))}"
+            f"obs {weather.get('obs_current')}C | city_open {int(stat.get('open_count', 0))} | "
+            f"city_uPnL {float(stat.get('unrealized_pnl', 0.0)):+.2f}$"
         )
     if result.get("errors"):
         for error in result["errors"]:
