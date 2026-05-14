@@ -3,6 +3,7 @@ from __future__ import annotations
 from collections.abc import Awaitable, Callable
 from dataclasses import dataclass
 from datetime import UTC, datetime
+import re
 
 from telegram import ReplyKeyboardMarkup, Update
 from telegram.ext import Application, ApplicationBuilder, CommandHandler, ContextTypes, MessageHandler, filters
@@ -15,6 +16,7 @@ MENU_OPEN = "Open Trades"
 MENU_CLOSED = "Closed Trades"
 MENU_BALANCE = "Balance"
 MENU_STATUS = "Status"
+MENU_PROBABILITIES = "Probabilities"
 MENU_LOGS = "Logs"
 MENU_RESTART = "Restart Bot"
 MENU_CLEAR = "Clear History"
@@ -92,8 +94,8 @@ class PaperTelegramService:
         keyboard = [
             [MENU_OPEN, MENU_CLOSED],
             [MENU_BALANCE, MENU_STATUS],
-            [MENU_LOGS, MENU_RESTART],
-            [MENU_CLEAR],
+            [MENU_PROBABILITIES, MENU_LOGS],
+            [MENU_RESTART, MENU_CLEAR],
         ]
         reply_markup = ReplyKeyboardMarkup(keyboard, resize_keyboard=True)
         if update.message is not None:
@@ -120,6 +122,9 @@ class PaperTelegramService:
             return
         if text_cmd == MENU_STATUS:
             await self._safe_reply(update, self.status_text())
+            return
+        if text_cmd == MENU_PROBABILITIES:
+            await self._safe_reply(update, self.probabilities_text())
             return
         if text_cmd == MENU_LOGS:
             await self._safe_reply(update, self.runtime_log_text())
@@ -177,6 +182,33 @@ class PaperTelegramService:
         tail = lines[-limit_lines:]
         return "Runtime log tail\n\n" + ("\n".join(tail) if tail else "Log is empty.")
 
+    def probabilities_text(self) -> str:
+        results = (self.runtime.last_result or {}).get("results", [])
+        if not results:
+            return "No analysis results yet."
+        lines = ["Latest probabilities"]
+        for item in results:
+            profile = item.get("profile", {})
+            actions = item.get("actions", [])
+            fair_values = (item.get("decision") or {}).get("fair_values", {})
+            positive_lines: list[str] = []
+            for action in actions:
+                market_id = action.get("market_id")
+                if not market_id:
+                    continue
+                probability = fair_values.get(market_id)
+                if probability is None or float(probability) <= 0:
+                    continue
+                positive_lines.append(
+                    f"{self._question_label(action.get('question', 'Unknown market'))}: {float(probability) * 100:.1f}%"
+                )
+            if not positive_lines:
+                continue
+            lines.append("")
+            lines.append(profile.get("city_name", "Unknown city"))
+            lines.extend(positive_lines)
+        return "\n".join(lines) if len(lines) > 1 else "No positive probabilities in the latest analysis."
+
     async def _safe_reply(self, update: Update, text: str) -> None:
         if update.message is None:
             return
@@ -204,6 +236,12 @@ class PaperTelegramService:
         if current:
             parts.append(current)
         return parts
+
+    def _question_label(self, question: str) -> str:
+        match = re.search(r"be\s+(.+?)\s+on\s+[A-Z][a-z]{2}\s+\d{1,2}\??$", question)
+        if match:
+            return match.group(1).replace(" or below", " or below").replace(" or higher", " or higher")
+        return question
 
 
 def render_cycle_notifications(result: dict) -> list[str]:
