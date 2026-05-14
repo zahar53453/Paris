@@ -296,6 +296,7 @@ class PaperBroker:
 
             fair_yes = fair_values.get(trade.market_id, 0.0)
             fair = fair_yes if trade.side == "YES" else 1.0 - fair_yes
+            previous_fair = trade.last_fair if trade.last_fair is not None else trade.entry_fair
             current_buy_price = self._entry_price_for_side(market, trade.side)
             current_exit_price = self._exit_price_for_side(market, trade.side)
             if current_buy_price is None or current_exit_price is None:
@@ -318,7 +319,17 @@ class PaperBroker:
             trade.exit_price = current_exit_price
             trade.exit_edge = current_edge
             trade.realized_pnl = unrealized_pnl
-            trade.close_reason = "Target edge disappeared or became negative."
+            from_edge = trade.entry_edge
+            if fair < previous_fair - 1e-9:
+                trade.close_reason = (
+                    f"New analysis reduced fair value; edge moved from {from_edge:+.3f} "
+                    f"to {current_edge:+.3f}."
+                )
+            else:
+                trade.close_reason = (
+                    f"Market price reached the target zone; edge moved from {from_edge:+.3f} "
+                    f"to {current_edge:+.3f}."
+                )
             closed.append(trade)
             events.append(self._event("CLOSE", trade, now))
             log_runtime(
