@@ -202,6 +202,8 @@ class PaperBroker:
                 continue
             trade.last_price = float(exit_price)
             trade.last_unrealized_pnl = (float(exit_price) - trade.entry_price) * trade.shares
+            if trade.last_fair is not None:
+                trade.last_edge = float(trade.last_fair) - float(exit_price)
             trade.updated_at = timestamp
             updated += 1
             if float(exit_price) >= 0.99:
