@@ -123,8 +123,7 @@ class PaperBroker:
         closed = self._close_invalidated(open_trades, market_by_id, fair_values, now, events)
         opened = self._open_new(profile, trades, actions, market_by_id, fair_values, open_token_ids, now, events)
 
-        if events:
-            self.store.save_trades(trades, events)
+        self.store.save_trades(trades, events)
 
         return {
             "opened": [asdict(trade) for trade in opened],
