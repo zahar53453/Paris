@@ -9,6 +9,7 @@ from uuid import uuid4
 
 from paris_today_bot.config import BotConfig
 from paris_today_bot.models import BucketMarket, TradeAction, WeatherSnapshot
+from paris_today_bot.position_sizing import load_position_sizing_rules
 from paris_today_bot.profile_loader import CityProfile
 from paris_today_bot.runtime_log import log_runtime
 
@@ -484,7 +485,13 @@ class PaperBroker:
             if edge < self.cfg.min_edge_to_open:
                 continue
 
-            size_usd = self._position_size(trades, edge, fair, price, market, side)
+            size_usd = self._position_size(profile, trades, edge, fair, price, market, side)
+            if size_usd <= 0:
+                log_runtime(
+                    f"[paper] skipped sized-to-zero city={profile.city_name} side={side} "
+                    f"question={action.question} price={price:.3f} edge={edge:.3f}"
+                )
+                continue
             trade = PaperTrade(
                 id=uuid4().hex,
                 status="OPEN",
@@ -524,6 +531,7 @@ class PaperBroker:
 
     def _position_size(
         self,
+        profile: CityProfile,
         trades: list[PaperTrade],
         edge: float,
         fair: float,
@@ -531,38 +539,89 @@ class PaperBroker:
         market: BucketMarket,
         side: str,
     ) -> float:
+        rules = load_position_sizing_rules()
         bankroll = self._bankroll(trades)
-        full_kelly = max(0.0, min(1.0, edge / max(1e-6, 1.0 - price)))
-        base = bankroll * full_kelly * self.cfg.paper_kelly_fraction
+        base_pct = float(rules.get("base_trade_pct", 0.01))
+        max_trade_pct = float(rules.get("max_trade_pct", 0.015))
+        min_trade_usd = float(rules.get("min_trade_usd", self.cfg.paper_min_trade_usd))
 
-        if price <= 0.02:
-            base *= 0.15
-        elif price <= 0.05:
-            base *= 0.25
-        elif price <= 0.10:
-            base *= 0.40
-        elif price <= 0.20:
-            base *= 0.60
+        price_cap_pct = self._price_cap_pct(rules, price, edge)
+        if price_cap_pct <= 0:
+            return 0.0
 
-        if fair < 0.20:
-            base *= 0.25
-        elif fair < 0.35:
-            base *= 0.50
-        elif fair < 0.50:
-            base *= 0.75
+        edge_multiplier = self._edge_multiplier(rules, edge)
+        kelly_multiplier = self._kelly_multiplier(rules, edge, price)
+        desired_pct = base_pct * edge_multiplier * kelly_multiplier
+        reverse_pair_remaining_pct = self._reverse_pair_remaining_pct(rules, profile, trades, market, side)
 
-        spread = self._spread_for_side(market, side)
-        if spread is not None and spread >= 0.10:
-            base *= 0.50
-        elif spread is not None and spread >= 0.05:
-            base *= 0.75
+        final_pct = min(desired_pct, price_cap_pct, reverse_pair_remaining_pct, max_trade_pct)
+        if final_pct <= 0:
+            return 0.0
 
-        size = round(max(self.cfg.paper_min_trade_usd, min(self.cfg.paper_max_trade_usd, base)), 2)
-        return size
+        return round(max(min_trade_usd, bankroll * final_pct), 2)
 
     def _bankroll(self, trades: list[PaperTrade]) -> float:
         realized = sum(float(trade.realized_pnl or 0.0) for trade in trades if trade.status == "CLOSED")
         return max(100.0, self.store.load().get("start_balance_usd", self.cfg.paper_start_balance_usd) + realized)
+
+    def _price_cap_pct(self, rules: dict[str, Any], price: float, edge: float) -> float:
+        for band in rules.get("price_caps", []):
+            min_price = float(band.get("min_price", 0.0))
+            max_price = float(band.get("max_price", 1.0))
+            if min_price <= price < max_price:
+                if str(band.get("allow", "always")) == "conditional":
+                    threshold = float(rules.get("sub_floor_edge_threshold", self.cfg.min_edge_to_open))
+                    if edge < threshold:
+                        return 0.0
+                return float(band.get("max_pct", 0.0))
+        return 0.0
+
+    def _edge_multiplier(self, rules: dict[str, Any], edge: float) -> float:
+        for band in rules.get("edge_multipliers", []):
+            min_edge = float(band.get("min_edge", 0.0))
+            max_edge = float(band.get("max_edge", 999.0))
+            if min_edge <= edge < max_edge:
+                return float(band.get("multiplier", 1.0))
+        return 1.0
+
+    def _kelly_multiplier(self, rules: dict[str, Any], edge: float, price: float) -> float:
+        kelly_rules = dict(rules.get("kelly", {}))
+        fraction = float(kelly_rules.get("fraction", 0.25))
+        kelly_score = max(0.0, min(1.0, edge / max(1e-6, 1.0 - price))) * fraction
+        for band in kelly_rules.get("bands", []):
+            min_score = float(band.get("min_score", 0.0))
+            max_score = float(band.get("max_score", 999.0))
+            if min_score <= kelly_score < max_score:
+                return float(band.get("multiplier", 1.0))
+        return 1.0
+
+    def _reverse_pair_remaining_pct(
+        self,
+        rules: dict[str, Any],
+        profile: CityProfile,
+        trades: list[PaperTrade],
+        market: BucketMarket,
+        side: str,
+    ) -> float:
+        reverse_rules = dict(rules.get("reverse_pair_cap", {}))
+        fallback = float(rules.get("max_trade_pct", 0.015))
+        if not bool(reverse_rules.get("enabled", False)):
+            return fallback
+
+        reverse_key = self._reverse_pair_key(profile, market, side, reverse_rules.get("tails", ["exact"]))
+        if reverse_key is None:
+            return fallback
+
+        bankroll = self._bankroll(trades)
+        max_total_pct = float(reverse_rules.get("max_total_pct", 0.015))
+        used_usd = 0.0
+        for trade in trades:
+            if trade.status != "OPEN" or trade.profile_slug != profile.slug:
+                continue
+            if self._reverse_pair_key_from_trade(trade, reverse_rules.get("tails", ["exact"])) == reverse_key:
+                used_usd += float(trade.size_usd or 0.0)
+        used_pct = used_usd / max(bankroll, 1e-6)
+        return max(0.0, max_total_pct - used_pct)
 
     def _entry_price_for_side(self, market: BucketMarket, side: str) -> float | None:
         if side == "YES":
@@ -596,6 +655,67 @@ class PaperBroker:
                 return 1.0 if side == "YES" else 0.0
             return None
         return None
+
+    def _reverse_pair_key(
+        self,
+        profile: CityProfile,
+        market: BucketMarket,
+        side: str,
+        allowed_tails: Iterable[str],
+    ) -> str | None:
+        if market.tail not in set(allowed_tails):
+            return None
+        if market.temperature_c is None:
+            return None
+        trade_day = self._question_date(market.question)
+        if trade_day is None:
+            return None
+        if side == "YES":
+            lower = market.temperature_c
+            upper = market.temperature_c + 1
+        else:
+            lower = market.temperature_c - 1
+            upper = market.temperature_c
+        return f"{profile.slug}|{trade_day.isoformat()}|{lower}:{upper}"
+
+    def _reverse_pair_key_from_trade(self, trade: PaperTrade, allowed_tails: Iterable[str]) -> str | None:
+        parsed = self._parse_trade_question(trade.question)
+        if parsed is None:
+            return None
+        temperature_c, tail, trade_day = parsed
+        if tail not in set(allowed_tails):
+            return None
+        if trade.side == "YES":
+            lower = temperature_c
+            upper = temperature_c + 1
+        else:
+            lower = temperature_c - 1
+            upper = temperature_c
+        return f"{trade.profile_slug}|{trade_day.isoformat()}|{lower}:{upper}"
+
+    def _parse_trade_question(self, question: str) -> tuple[int, str, date] | None:
+        import re
+
+        temp_match = re.search(r"(\d+)\s*°?C", question)
+        date_match = re.search(r"on ([A-Za-z]+) (\d{1,2})", question)
+        if temp_match is None or date_match is None:
+            return None
+        try:
+            temperature_c = int(temp_match.group(1))
+            month_name = date_match.group(1)
+            day = int(date_match.group(2))
+            year_match = re.search(r"(\d{4})", question)
+            year = int(year_match.group(1)) if year_match else datetime.now(UTC).year
+            trade_day = datetime.strptime(f"{month_name} {day} {year}", "%B %d %Y").date()
+        except ValueError:
+            return None
+        tail = "exact"
+        lower_q = question.lower()
+        if "or higher" in lower_q or "or above" in lower_q:
+            tail = "or_higher"
+        elif "or lower" in lower_q or "or below" in lower_q:
+            tail = "or_lower"
+        return (temperature_c, tail, trade_day)
 
 
     def _event(self, event_type: str, trade: PaperTrade, timestamp: str) -> dict[str, Any]:

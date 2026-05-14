@@ -1,0 +1,85 @@
+{
+  "base_trade_pct": 0.01,
+  "max_trade_pct": 0.015,
+  "min_trade_usd": 1.0,
+  "sub_floor_edge_threshold": 0.25,
+  "price_caps": [
+    {
+      "min_price": 0.0,
+      "max_price": 0.1,
+      "max_pct": 0.001,
+      "allow": "conditional"
+    },
+    {
+      "min_price": 0.1,
+      "max_price": 0.2,
+      "max_pct": 0.0025,
+      "allow": "always"
+    },
+    {
+      "min_price": 0.2,
+      "max_price": 0.9,
+      "max_pct": 0.015,
+      "allow": "always"
+    }
+  ],
+  "edge_multipliers": [
+    {
+      "min_edge": 0.1,
+      "max_edge": 0.15,
+      "multiplier": 1.2
+    },
+    {
+      "min_edge": 0.15,
+      "max_edge": 0.2,
+      "multiplier": 1.1
+    },
+    {
+      "min_edge": 0.2,
+      "max_edge": 0.3,
+      "multiplier": 1.0
+    },
+    {
+      "min_edge": 0.3,
+      "max_edge": 0.4,
+      "multiplier": 1.0
+    },
+    {
+      "min_edge": 0.4,
+      "max_edge": 0.6,
+      "multiplier": 0.9
+    },
+    {
+      "min_edge": 0.6,
+      "max_edge": 999.0,
+      "multiplier": 0.8
+    }
+  ],
+  "kelly": {
+    "fraction": 0.25,
+    "bands": [
+      {
+        "min_score": 0.0,
+        "max_score": 0.1,
+        "multiplier": 0.85
+      },
+      {
+        "min_score": 0.1,
+        "max_score": 0.25,
+        "multiplier": 1.0
+      },
+      {
+        "min_score": 0.25,
+        "max_score": 999.0,
+        "multiplier": 1.1
+      }
+    ]
+  },
+  "reverse_pair_cap": {
+    "enabled": true,
+    "max_total_pct": 0.015,
+    "tails": [
+      "exact"
+    ]
+  }
+}
