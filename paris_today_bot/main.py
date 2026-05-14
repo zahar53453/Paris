@@ -141,6 +141,7 @@ async def run_paper_telegram_service(profile_name: str | None, interval_seconds:
     cycle_lock = asyncio.Lock()
 
     async def execute_cycle(trigger: str) -> dict:
+        previous_result = runtime.last_result
         runtime.last_cycle_started_at = datetime.now(UTC).isoformat()
         log_runtime(f"[paper-service] cycle started trigger={trigger} at {runtime.last_cycle_started_at}")
         refresh_state = await refresh_paper_prices()
@@ -154,6 +155,7 @@ async def run_paper_telegram_service(profile_name: str | None, interval_seconds:
         else:
             result = await run_all_profiles(paper=True)
         result["paper_refresh"] = refresh_state
+        result["probability_changes"] = build_probability_changes(previous_result, result)
         runtime.last_result = result
         runtime.last_error = None
         runtime.last_cycle_finished_at = datetime.now(UTC).isoformat()
@@ -288,6 +290,63 @@ async def build_paper_report(refresh_prices: bool = True) -> dict:
             "balance": reporter.balance_text(),
         },
     }
+
+
+def build_probability_changes(previous_result: dict | None, current_result: dict) -> dict[str, list[dict[str, float | str]]]:
+    if not previous_result:
+        return {}
+    previous_by_slug = {
+        (item.get("profile") or {}).get("slug"): item
+        for item in previous_result.get("results", [])
+    }
+    changes: dict[str, list[dict[str, float | str]]] = {}
+    for item in current_result.get("results", []):
+        profile = item.get("profile", {})
+        slug = profile.get("slug")
+        if not slug:
+            continue
+        previous_item = previous_by_slug.get(slug)
+        if previous_item is None:
+            continue
+        current_probs = _question_probabilities(item)
+        previous_probs = _question_probabilities(previous_item)
+        city_changes: list[dict[str, float | str]] = []
+        for label, current_prob in current_probs.items():
+            previous_prob = previous_probs.get(label)
+            if previous_prob is None:
+                continue
+            if abs(current_prob - previous_prob) < 1e-9:
+                continue
+            city_changes.append(
+                {
+                    "label": label,
+                    "previous": previous_prob,
+                    "current": current_prob,
+                }
+            )
+        if city_changes:
+            city_changes.sort(key=lambda row: (-(abs(float(row["current"]) - float(row["previous"]))), str(row["label"])))
+            changes[slug] = city_changes
+    return changes
+
+
+def _question_probabilities(item: dict) -> dict[str, float]:
+    import re
+
+    fair_values = (item.get("decision") or {}).get("fair_values", {})
+    probabilities: dict[str, float] = {}
+    for action in item.get("actions", []):
+        market_id = action.get("market_id")
+        if not market_id:
+            continue
+        probability = fair_values.get(market_id)
+        if probability is None or float(probability) <= 0:
+            continue
+        question = action.get("question", "")
+        match = re.search(r"be\s+(.+?)\s+on\s+[A-Z][a-z]{2}\s+\d{1,2}\??$", question)
+        label = match.group(1) if match else question
+        probabilities[label] = float(probability)
+    return probabilities
 
 
 def main() -> None:

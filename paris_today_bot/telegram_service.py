@@ -146,6 +146,7 @@ class PaperTelegramService:
     def status_text(self) -> str:
         summary = self.runtime.last_result.get("paper_summary") if self.runtime.last_result else None
         city_stats = (self.runtime.last_result or {}).get("paper_city_stats", {})
+        probability_changes = (self.runtime.last_result or {}).get("probability_changes", {})
         lines = ["Paper bot status"]
         if self.runtime.started_at:
             lines.append(f"Started: {self.runtime.started_at}")
@@ -172,6 +173,13 @@ class PaperTelegramService:
                 f"obs {weather.get('obs_current')}C | city_open {int(stat.get('open_count', 0))} | "
                 f"city_uPnL {float(stat.get('unrealized_pnl', 0.0)):+.2f}$"
             )
+        lines.extend(
+            _probability_changes_lines(
+                probability_changes,
+                (self.runtime.last_result or {}).get("results", []),
+                include_header=True,
+            )
+        )
         return "\n".join(lines)
 
     def runtime_log_text(self, limit_lines: int = 60) -> str:
@@ -289,6 +297,7 @@ def render_cycle_notifications(result: dict) -> list[str]:
     if result.get("errors"):
         for error in result["errors"]:
             city_lines.append(f"{error['profile']['city_name']}: ERROR {error['error']}")
+    probability_change_lines = _probability_changes_lines(result.get("probability_changes", {}), result.get("results", []), include_header=True)
     messages.append(
         "\n".join(
             [
@@ -297,7 +306,37 @@ def render_cycle_notifications(result: dict) -> list[str]:
                 f"Open trades: {summary.get('open_count', 0)} | Closed trades: {summary.get('closed_count', 0)}",
                 f"Realized: {float(summary.get('realized_pnl', 0.0)):+.2f}$ | Unrealized: {float(summary.get('unrealized_pnl', 0.0)):+.2f}$",
                 *city_lines,
+                *probability_change_lines,
             ]
         )
     )
     return messages
+
+
+def _probability_changes_lines(
+    probability_changes: dict[str, list[dict[str, float | str]]],
+    results: list[dict],
+    *,
+    include_header: bool,
+) -> list[str]:
+    if not probability_changes:
+        return []
+    city_names = {
+        (item.get("profile") or {}).get("slug"): (item.get("profile") or {}).get("city_name", "Unknown city")
+        for item in results
+    }
+    lines: list[str] = []
+    if include_header:
+        lines.extend(["", "Probability changes"])
+    for slug, changes in probability_changes.items():
+        if not changes:
+            continue
+        lines.append(city_names.get(slug, slug))
+        for change in changes:
+            lines.append(
+                f"{change['label']}: {float(change['previous']) * 100:.1f}% -> {float(change['current']) * 100:.1f}%"
+            )
+        lines.append("")
+    if lines and lines[-1] == "":
+        lines.pop()
+    return lines
