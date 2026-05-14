@@ -57,14 +57,14 @@ class CityMarketClient:
             markets=markets,
         )
 
-    async def fetch_books_by_token(self, token_ids: list[str]) -> dict[str, dict[str, float | None]]:
+    async def fetch_books_by_token(self, token_ids: list[str]) -> dict[str, dict[str, Any]]:
         clean_ids = [token_id for token_id in token_ids if token_id]
         if not clean_ids:
             return {}
         async with httpx.AsyncClient(timeout=8.0) as client:
             tasks = {token_id: self._fetch_book(client, token_id) for token_id in clean_ids}
             results = await asyncio.gather(*tasks.values(), return_exceptions=True)
-        books_by_token: dict[str, dict[str, float | None]] = {}
+        books_by_token: dict[str, dict[str, Any]] = {}
         for token_id, result in zip(tasks.keys(), results):
             if isinstance(result, Exception):
                 continue
@@ -168,6 +168,8 @@ class CityMarketClient:
             best_bid=best_bid,
             midpoint=midpoint,
             temperature_c=temp_c,
+            yes_asks=[],
+            yes_bids=[],
             tail=tail,
         )
 
@@ -195,38 +197,55 @@ class CityMarketClient:
                 market.best_ask = yes_book["best_ask"]
                 market.best_bid = yes_book["best_bid"]
                 market.midpoint = yes_book["midpoint"]
+                market.yes_asks = list(yes_book.get("asks") or [])
+                market.yes_bids = list(yes_book.get("bids") or [])
             if no_book is not None:
                 market.no_best_ask = no_book["best_ask"]
                 market.no_best_bid = no_book["best_bid"]
                 market.no_midpoint = no_book["midpoint"]
+                market.no_asks = list(no_book.get("asks") or [])
+                market.no_bids = list(no_book.get("bids") or [])
 
-    async def _fetch_book(self, client: httpx.AsyncClient, token_id: str) -> dict[str, float | None]:
+    async def _fetch_book(self, client: httpx.AsyncClient, token_id: str) -> dict[str, Any]:
         response = await client.get(f"{self.cfg.clob_api_url}/book", params={"token_id": token_id})
         response.raise_for_status()
         payload = response.json()
-        asks = payload.get("asks") or []
-        bids = payload.get("bids") or []
+        asks = self._normalize_levels(payload.get("asks") or [], lowest_first=True)
+        bids = self._normalize_levels(payload.get("bids") or [], lowest_first=False)
         best_ask = self._best_price(asks, lowest=True)
         best_bid = self._best_price(bids, lowest=False)
         midpoint = None
         if best_ask is not None and best_bid is not None:
             midpoint = (best_ask + best_bid) / 2.0
         return {
+            "asks": asks,
+            "bids": bids,
             "best_ask": best_ask,
             "best_bid": best_bid,
             "midpoint": midpoint,
         }
 
-    def _best_price(self, levels: list[dict[str, Any]], *, lowest: bool) -> float | None:
+    def _best_price(self, levels: list[tuple[float, float]], *, lowest: bool) -> float | None:
         prices: list[float] = []
-        for level in levels:
-            try:
-                prices.append(float(level["price"]))
-            except (KeyError, TypeError, ValueError):
-                continue
+        for price, _size in levels:
+            prices.append(float(price))
         if not prices:
             return None
         return min(prices) if lowest else max(prices)
+
+    def _normalize_levels(self, levels: list[dict[str, Any]], *, lowest_first: bool) -> list[tuple[float, float]]:
+        normalized: list[tuple[float, float]] = []
+        for level in levels:
+            try:
+                price = float(level["price"])
+                size = float(level["size"])
+            except (KeyError, TypeError, ValueError):
+                continue
+            if price <= 0 or size <= 0:
+                continue
+            normalized.append((price, size))
+        normalized.sort(key=lambda item: item[0], reverse=not lowest_first)
+        return normalized
 
     def _coerce_float(self, value: object) -> float | None:
         try:

@@ -44,6 +44,16 @@ class PaperTrade:
     metadata: dict[str, Any] = field(default_factory=dict)
 
 
+@dataclass(slots=True)
+class DepthQuote:
+    avg_price: float | None
+    filled_shares: float
+    filled_notional: float
+    top_price: float | None
+    liquidity_ok: bool
+    levels_used: int
+
+
 class PaperStore:
     def __init__(self, path: Path, start_balance_usd: float) -> None:
         self.path = path
@@ -143,11 +153,11 @@ class PaperBroker:
             market = market_by_id.get(trade.market_id)
             if market is None:
                 continue
-            exit_price = self._exit_price_for_side(market, trade.side)
-            if exit_price is None:
+            exit_quote = self._exit_quote_for_market(market, trade.side, trade.shares)
+            if exit_quote.avg_price is None:
                 continue
-            trade.last_price = exit_price
-            trade.last_unrealized_pnl = (exit_price - trade.entry_price) * trade.shares
+            trade.last_price = exit_quote.avg_price
+            trade.last_unrealized_pnl = (exit_quote.avg_price - trade.entry_price) * trade.shares
             trade.updated_at = now
             updated += 1
         if updated:
@@ -157,7 +167,7 @@ class PaperBroker:
     def mark_to_market_by_books(
         self,
         profile: CityProfile,
-        books_by_token: dict[str, dict[str, float | None]],
+        books_by_token: dict[str, dict[str, Any]],
         closed_market_states: dict[str, dict[str, Any]] | None = None,
         now: str | None = None,
     ) -> dict[str, Any]:
@@ -196,20 +206,20 @@ class PaperBroker:
                     f"question={trade.question} token={trade.token_id[:10]}"
                 )
                 continue
-            exit_price = book.get("best_bid")
-            entry_price_now = book.get("best_ask")
-            if exit_price is None:
+            exit_quote = self._exit_quote_for_book(book, trade.shares)
+            entry_quote_now = self._entry_quote_for_book(book, trade.size_usd)
+            if exit_quote.avg_price is None:
                 continue
-            trade.last_price = float(exit_price)
-            trade.last_unrealized_pnl = (float(exit_price) - trade.entry_price) * trade.shares
+            trade.last_price = float(exit_quote.avg_price)
+            trade.last_unrealized_pnl = (float(exit_quote.avg_price) - trade.entry_price) * trade.shares
             if trade.last_fair is not None:
-                trade.last_edge = float(trade.last_fair) - float(exit_price)
+                trade.last_edge = float(trade.last_fair) - float(exit_quote.avg_price)
             trade.updated_at = timestamp
             updated += 1
-            if float(exit_price) >= 0.99:
+            if float(exit_quote.avg_price) >= 0.99:
                 trade.status = "CLOSED"
                 trade.closed_at = timestamp
-                trade.exit_price = float(exit_price)
+                trade.exit_price = float(exit_quote.avg_price)
                 trade.exit_edge = trade.last_edge
                 trade.realized_pnl = trade.last_unrealized_pnl
                 trade.close_reason = "Contract reached forced take-profit threshold >= 0.99."
@@ -217,12 +227,12 @@ class PaperBroker:
                 closed += 1
                 log_runtime(
                     f"[paper] take-profit trade closed city={trade.city_name} side={trade.side} "
-                    f"question={trade.question} exit={float(exit_price):.3f}"
+                    f"question={trade.question} exit={float(exit_quote.avg_price):.3f}"
                 )
-            elif entry_price_now is not None and float(entry_price_now) <= self.cfg.paper_min_contract_price:
+            elif entry_quote_now.top_price is not None and float(entry_quote_now.top_price) <= self.cfg.paper_min_contract_price:
                 trade.status = "CLOSED"
                 trade.closed_at = timestamp
-                trade.exit_price = float(exit_price)
+                trade.exit_price = float(exit_quote.avg_price)
                 trade.exit_edge = trade.last_edge
                 trade.realized_pnl = trade.last_unrealized_pnl
                 trade.close_reason = "Contract fell below tradable price floor during mark-to-market."
@@ -230,7 +240,7 @@ class PaperBroker:
                 closed += 1
                 log_runtime(
                     f"[paper] floor-close trade closed city={trade.city_name} side={trade.side} "
-                    f"question={trade.question} ask={float(entry_price_now):.3f} exit={float(exit_price):.3f}"
+                    f"question={trade.question} ask={float(entry_quote_now.top_price):.3f} exit={float(exit_quote.avg_price):.3f}"
                 )
         if updated or events:
             self.store.save_trades(trades, events)
@@ -298,7 +308,8 @@ class PaperBroker:
             fair_yes = fair_values.get(trade.market_id, 0.0)
             fair = fair_yes if trade.side == "YES" else 1.0 - fair_yes
             previous_fair = trade.last_fair if trade.last_fair is not None else trade.entry_fair
-            current_exit_price = self._exit_price_for_side(market, trade.side)
+            exit_quote = self._exit_quote_for_market(market, trade.side, trade.shares)
+            current_exit_price = exit_quote.avg_price
             if current_exit_price is None:
                 continue
 
@@ -394,8 +405,10 @@ class PaperBroker:
             market = market_by_id.get(trade.market_id)
             if market is None:
                 continue
-            current_entry_price = self._entry_price_for_side(market, trade.side)
-            current_exit_price = self._exit_price_for_side(market, trade.side)
+            current_entry_quote = self._entry_quote_for_market(market, trade.side, trade.size_usd)
+            current_exit_quote = self._exit_quote_for_market(market, trade.side, trade.shares)
+            current_entry_price = current_entry_quote.top_price
+            current_exit_price = current_exit_quote.avg_price
             if current_entry_price is None or current_exit_price is None:
                 continue
             if current_entry_price > self.cfg.paper_min_contract_price:
@@ -431,7 +444,8 @@ class PaperBroker:
             market = market_by_id.get(trade.market_id)
             if market is None:
                 continue
-            current_exit_price = self._exit_price_for_side(market, trade.side)
+            current_exit_quote = self._exit_quote_for_market(market, trade.side, trade.shares)
+            current_exit_price = current_exit_quote.avg_price
             if current_exit_price is None or float(current_exit_price) < 0.99:
                 continue
             trade.last_price = float(current_exit_price)
@@ -480,27 +494,49 @@ class PaperBroker:
                     f"[paper] skipped stale market city={profile.city_name} side={side} question={action.question}"
                 )
                 continue
-            price = self._entry_price_for_side(market, side)
-            if price is None or price <= 0:
+            reference_price = self._entry_price_for_side(market, side)
+            if reference_price is None or reference_price <= 0:
                 continue
-            if price <= self.cfg.paper_min_contract_price:
+            if reference_price <= self.cfg.paper_min_contract_price:
                 log_runtime(
                     f"[paper] skipped cheap contract city={profile.city_name} side={side} "
-                    f"question={action.question} price={price:.3f}"
+                    f"question={action.question} price={reference_price:.3f}"
                 )
                 continue
 
             fair_yes = fair_values.get(action.market_id, 0.0)
             fair = fair_yes if side == "YES" else 1.0 - fair_yes
-            edge = fair - price
+            edge = fair - reference_price
             if edge < self.cfg.min_edge_to_open:
                 continue
 
-            size_usd = self._position_size(profile, trades, edge, fair, price, market, side)
+            size_usd = self._position_size(profile, trades, edge, fair, reference_price, market, side)
             if size_usd <= 0:
                 log_runtime(
                     f"[paper] skipped sized-to-zero city={profile.city_name} side={side} "
-                    f"question={action.question} price={price:.3f} edge={edge:.3f}"
+                    f"question={action.question} price={reference_price:.3f} edge={edge:.3f}"
+                )
+                continue
+            entry_quote = self._entry_quote_for_market(market, side, size_usd)
+            if entry_quote.avg_price is None or entry_quote.filled_shares <= 0:
+                log_runtime(
+                    f"[paper] skipped no-liquidity city={profile.city_name} side={side} "
+                    f"question={action.question} size={size_usd:.2f}"
+                )
+                continue
+            if not entry_quote.liquidity_ok:
+                log_runtime(
+                    f"[paper] skipped thin-liquidity city={profile.city_name} side={side} "
+                    f"question={action.question} size={size_usd:.2f} filled={entry_quote.filled_notional:.2f}"
+                )
+                continue
+            actual_price = entry_quote.avg_price
+            actual_size_usd = round(entry_quote.filled_notional, 2)
+            actual_edge = fair - actual_price
+            if actual_edge < self.cfg.min_edge_to_open:
+                log_runtime(
+                    f"[paper] skipped after-slippage city={profile.city_name} side={side} "
+                    f"question={action.question} avg_price={actual_price:.3f} fair={fair:.3f} edge={actual_edge:+.3f}"
                 )
                 continue
             trade = PaperTrade(
@@ -513,20 +549,21 @@ class PaperBroker:
                 question=action.question,
                 token_id=action.token_id,
                 side=side,
-                entry_price=price,
-                size_usd=size_usd,
-                shares=size_usd / price,
-                entry_edge=edge,
+                entry_price=actual_price,
+                size_usd=actual_size_usd,
+                shares=entry_quote.filled_shares,
+                entry_edge=actual_edge,
                 entry_fair=fair,
                 opened_at=now,
-                last_price=price,
+                last_price=actual_price,
                 last_fair=fair,
-                last_edge=edge,
+                last_edge=actual_edge,
                 last_unrealized_pnl=0.0,
                 updated_at=now,
                 metadata={
                     "model_reason": action.reason,
                     "market_spread": self._spread_for_side(market, side),
+                    "levels_used_entry": entry_quote.levels_used,
                 },
             )
             trades.append(trade)
@@ -650,6 +687,124 @@ class PaperBroker:
         if side == "NO" and market.no_best_ask is not None and market.no_best_bid is not None:
             return max(0.0, market.no_best_ask - market.no_best_bid)
         return None
+
+    def _entry_quote_for_market(self, market: BucketMarket, side: str, target_usd: float) -> DepthQuote:
+        if side == "YES":
+            return self._quote_levels(
+                market.yes_asks,
+                side="BUY",
+                target_usd=target_usd,
+                fallback_price=market.best_ask if market.best_ask is not None else market.midpoint,
+            )
+        return self._quote_levels(
+            market.no_asks,
+            side="BUY",
+            target_usd=target_usd,
+            fallback_price=market.no_best_ask if market.no_best_ask is not None else market.no_midpoint,
+        )
+
+    def _exit_quote_for_market(self, market: BucketMarket, side: str, target_shares: float) -> DepthQuote:
+        if side == "YES":
+            return self._quote_levels(
+                market.yes_bids,
+                side="SELL",
+                target_shares=target_shares,
+                fallback_price=market.best_bid,
+            )
+        return self._quote_levels(
+            market.no_bids,
+            side="SELL",
+            target_shares=target_shares,
+            fallback_price=market.no_best_bid,
+        )
+
+    def _entry_quote_for_book(self, book: dict[str, Any], target_usd: float) -> DepthQuote:
+        return self._quote_levels(
+            list(book.get("asks") or []),
+            side="BUY",
+            target_usd=target_usd,
+            fallback_price=book.get("best_ask"),
+        )
+
+    def _exit_quote_for_book(self, book: dict[str, Any], target_shares: float) -> DepthQuote:
+        return self._quote_levels(
+            list(book.get("bids") or []),
+            side="SELL",
+            target_shares=target_shares,
+            fallback_price=book.get("best_bid"),
+        )
+
+    def _quote_levels(
+        self,
+        levels: list[tuple[float, float]],
+        *,
+        side: str,
+        target_usd: float = 0.0,
+        target_shares: float = 0.0,
+        fallback_price: float | None = None,
+    ) -> DepthQuote:
+        usable_levels = [(float(price), float(size)) for price, size in levels if price > 0 and size > 0]
+        if not usable_levels and fallback_price and fallback_price > 0:
+            if side == "BUY" and target_usd > 0:
+                fallback_size = target_usd / fallback_price
+            elif side == "SELL" and target_shares > 0:
+                fallback_size = target_shares
+            else:
+                fallback_size = 0.0
+            usable_levels = [(float(fallback_price), float(fallback_size))] if fallback_size > 0 else []
+        if not usable_levels:
+            return DepthQuote(
+                avg_price=None,
+                filled_shares=0.0,
+                filled_notional=0.0,
+                top_price=fallback_price,
+                liquidity_ok=False,
+                levels_used=0,
+            )
+
+        top_price = usable_levels[0][0]
+        filled_shares = 0.0
+        filled_notional = 0.0
+        levels_used = 0
+
+        if side == "BUY":
+            remaining_usd = target_usd
+            for price, size in usable_levels:
+                if remaining_usd <= 0:
+                    break
+                level_usd = price * size
+                if level_usd <= remaining_usd:
+                    filled_shares += size
+                    filled_notional += level_usd
+                    remaining_usd -= level_usd
+                else:
+                    partial_shares = remaining_usd / price if price > 0 else 0.0
+                    filled_shares += partial_shares
+                    filled_notional += partial_shares * price
+                    remaining_usd = 0.0
+                levels_used += 1
+            liquidity_ok = target_usd <= 0 or filled_notional >= target_usd * 0.98
+        else:
+            remaining_shares = target_shares
+            for price, size in usable_levels:
+                if remaining_shares <= 0:
+                    break
+                take = min(size, remaining_shares)
+                filled_shares += take
+                filled_notional += take * price
+                remaining_shares -= take
+                levels_used += 1
+            liquidity_ok = target_shares <= 0 or filled_shares >= target_shares * 0.98
+
+        avg_price = (filled_notional / filled_shares) if filled_shares > 0 else None
+        return DepthQuote(
+            avg_price=avg_price,
+            filled_shares=filled_shares,
+            filled_notional=filled_notional,
+            top_price=top_price,
+            liquidity_ok=liquidity_ok,
+            levels_used=levels_used,
+        )
 
     def _observation_resolved_price(self, side: str, market: BucketMarket, obs_max_so_far: int) -> float | None:
         threshold = market.temperature_c

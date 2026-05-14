@@ -54,9 +54,13 @@ class BucketMarket:
     best_bid: float | None
     midpoint: float | None
     temperature_c: int | None
+    yes_asks: list[tuple[float, float]] = field(default_factory=list)
+    yes_bids: list[tuple[float, float]] = field(default_factory=list)
     no_best_ask: float | None = None
     no_best_bid: float | None = None
     no_midpoint: float | None = None
+    no_asks: list[tuple[float, float]] = field(default_factory=list)
+    no_bids: list[tuple[float, float]] = field(default_factory=list)
     tail: str = "exact"  # exact / or_higher / or_lower
 
 
