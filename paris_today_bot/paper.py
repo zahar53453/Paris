@@ -297,12 +297,11 @@ class PaperBroker:
             fair_yes = fair_values.get(trade.market_id, 0.0)
             fair = fair_yes if trade.side == "YES" else 1.0 - fair_yes
             previous_fair = trade.last_fair if trade.last_fair is not None else trade.entry_fair
-            current_buy_price = self._entry_price_for_side(market, trade.side)
             current_exit_price = self._exit_price_for_side(market, trade.side)
-            if current_buy_price is None or current_exit_price is None:
+            if current_exit_price is None:
                 continue
 
-            current_edge = fair - current_buy_price
+            current_edge = fair - current_exit_price
             unrealized_pnl = (current_exit_price - trade.entry_price) * trade.shares
             trade.last_price = current_exit_price
             trade.last_fair = fair
