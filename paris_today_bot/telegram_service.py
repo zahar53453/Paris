@@ -199,6 +199,7 @@ class PaperTelegramService:
             profile = item.get("profile", {})
             actions = item.get("actions", [])
             fair_values = (item.get("decision") or {}).get("fair_values", {})
+            valid_utc = ((item.get("ml_analysis") or {}).get("valid_utc")) or "unknown UTC"
             positive_lines: list[str] = []
             for action in actions:
                 market_id = action.get("market_id")
@@ -213,7 +214,7 @@ class PaperTelegramService:
             if not positive_lines:
                 continue
             lines.append("")
-            lines.append(profile.get("city_name", "Unknown city"))
+            lines.append(f"{profile.get('city_name', 'Unknown city')} | {valid_utc}")
             lines.extend(positive_lines)
         return "\n".join(lines) if len(lines) > 1 else "No positive probabilities in the latest analysis."
 
@@ -253,6 +254,9 @@ class PaperTelegramService:
 
 
 def render_cycle_notifications(result: dict) -> list[str]:
+    metar_updates = result.get("metar_updates", {})
+    if not metar_updates:
+        return []
     messages: list[str] = []
     for item in result.get("results", []):
         paper = item.get("paper") or {}
@@ -281,34 +285,29 @@ def render_cycle_notifications(result: dict) -> list[str]:
                     ]
                 )
             )
-    summary = result.get("paper_summary", {})
-    city_stats = result.get("paper_city_stats", {})
-    city_lines = []
+    update_lines = ["DATA UPDATE", f"Cycle: {datetime.now(UTC).isoformat()}"]
     for item in result.get("results", []):
         profile = item.get("profile", {})
-        decision = item.get("decision", {})
-        weather = item.get("weather", {})
-        stat = city_stats.get(profile.get("slug"), {})
-        city_lines.append(
-            f"{profile.get('city_name')}: max {decision.get('projected_max')}C | "
-            f"obs {weather.get('obs_current')}C | city_open {int(stat.get('open_count', 0))} | "
-            f"city_uPnL {float(stat.get('unrealized_pnl', 0.0)):+.2f}$"
-        )
+        slug = profile.get("slug")
+        if slug not in metar_updates:
+            continue
+        update = metar_updates.get(slug, {})
+        update_lines.append("")
+        update_lines.append(f"{update.get('city_name', profile.get('city_name', slug))} | {update.get('current_valid_utc')}")
+        changes = update.get("probability_changes") or []
+        if not changes:
+            update_lines.append("Probabilities unchanged.")
+            continue
+        for change in changes:
+            update_lines.append(
+                f"{change['label']}: {float(change['previous']) * 100:.1f}% -> {float(change['current']) * 100:.1f}%"
+            )
     if result.get("errors"):
         for error in result["errors"]:
-            city_lines.append(f"{error['profile']['city_name']}: ERROR {error['error']}")
-    probability_change_lines = _probability_changes_lines(result.get("probability_changes", {}), result.get("results", []), include_header=True)
+            update_lines.append("")
+            update_lines.append(f"{error['profile']['city_name']}: ERROR {error['error']}")
     messages.append(
-        "\n".join(
-            [
-                "STATUS",
-                f"Cycle: {datetime.now(UTC).isoformat()}",
-                f"Open trades: {summary.get('open_count', 0)} | Closed trades: {summary.get('closed_count', 0)}",
-                f"Realized: {float(summary.get('realized_pnl', 0.0)):+.2f}$ | Unrealized: {float(summary.get('unrealized_pnl', 0.0)):+.2f}$",
-                *city_lines,
-                *probability_change_lines,
-            ]
-        )
+        "\n".join(update_lines)
     )
     return messages
 

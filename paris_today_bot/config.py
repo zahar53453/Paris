@@ -19,7 +19,7 @@ def _env_bool(name: str, default: bool) -> bool:
 @dataclass(slots=True)
 class BotConfig:
     dry_run: bool = _env_bool("PARIS_BOT_DRY_RUN", True)
-    poll_seconds: int = int(os.getenv("PARIS_BOT_POLL_SECONDS", "300"))
+    poll_seconds: int = int(os.getenv("PARIS_BOT_POLL_SECONDS", "60"))
     telegram_bot_token: str = os.getenv("PARIS_BOT_TELEGRAM_BOT_TOKEN", "")
     telegram_chat_id: str = os.getenv("PARIS_BOT_TELEGRAM_CHAT_ID", "")
     telegram_menu_enabled: bool = _env_bool("PARIS_BOT_TELEGRAM_MENU_ENABLED", True)

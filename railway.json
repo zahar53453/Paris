@@ -5,7 +5,7 @@
     "dockerfilePath": "Dockerfile"
   },
   "deploy": {
-    "startCommand": "python -m paris_today_bot.main --serve-paper --interval 300",
+    "startCommand": "python -m paris_today_bot.main --serve-paper --interval 60",
     "restartPolicyType": "ON_FAILURE",
     "restartPolicyMaxRetries": 10
   }

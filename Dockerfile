@@ -25,4 +25,4 @@ ENV LANG=C.UTF-8
 ENV PYTHONUNBUFFERED=1
 ENV DATA_DIR=/data
 
-CMD ["python", "-m", "paris_today_bot.main", "--serve-paper", "--interval", "300"]
+CMD ["python", "-m", "paris_today_bot.main", "--serve-paper", "--interval", "60"]

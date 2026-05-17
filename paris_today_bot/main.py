@@ -177,6 +177,7 @@ async def run_paper_telegram_service(profile_name: str | None, interval_seconds:
             result = await run_all_profiles(paper=True)
         result["paper_refresh"] = refresh_state
         result["probability_changes"] = build_probability_changes(previous_result, result)
+        result["metar_updates"] = build_metar_updates(previous_result, result)
         runtime.last_result = result
         runtime.last_error = None
         runtime.last_cycle_finished_at = datetime.now(UTC).isoformat()
@@ -332,10 +333,9 @@ def build_probability_changes(previous_result: dict | None, current_result: dict
         current_probs = _question_probabilities(item)
         previous_probs = _question_probabilities(previous_item)
         city_changes: list[dict[str, float | str]] = []
-        for label, current_prob in current_probs.items():
-            previous_prob = previous_probs.get(label)
-            if previous_prob is None:
-                continue
+        for label in sorted(set(previous_probs) | set(current_probs)):
+            current_prob = current_probs.get(label, 0.0)
+            previous_prob = previous_probs.get(label, 0.0)
             if abs(current_prob - previous_prob) < 1e-9:
                 continue
             city_changes.append(
@@ -349,6 +349,34 @@ def build_probability_changes(previous_result: dict | None, current_result: dict
             city_changes.sort(key=lambda row: (-(abs(float(row["current"]) - float(row["previous"]))), str(row["label"])))
             changes[slug] = city_changes
     return changes
+
+
+def build_metar_updates(previous_result: dict | None, current_result: dict) -> dict[str, dict]:
+    previous_by_slug = {
+        (item.get("profile") or {}).get("slug"): item
+        for item in (previous_result or {}).get("results", [])
+    }
+    probability_changes = build_probability_changes(previous_result, current_result)
+    updates: dict[str, dict] = {}
+    for item in current_result.get("results", []):
+        profile = item.get("profile", {})
+        slug = profile.get("slug")
+        if not slug:
+            continue
+        current_valid_utc = ((item.get("ml_analysis") or {}).get("valid_utc"))
+        if not current_valid_utc:
+            continue
+        previous_item = previous_by_slug.get(slug)
+        previous_valid_utc = ((previous_item or {}).get("ml_analysis") or {}).get("valid_utc")
+        if previous_valid_utc == current_valid_utc:
+            continue
+        updates[slug] = {
+            "city_name": profile.get("city_name", "Unknown city"),
+            "previous_valid_utc": previous_valid_utc,
+            "current_valid_utc": current_valid_utc,
+            "probability_changes": probability_changes.get(slug, []),
+        }
+    return updates
 
 
 def _question_probabilities(item: dict) -> dict[str, float]:
@@ -376,7 +404,7 @@ def main() -> None:
     parser.add_argument("--paper", action="store_true", help="Record virtual paper trades from this run.")
     parser.add_argument("--paper-loop", action="store_true", help="Run continuously and record virtual paper trades.")
     parser.add_argument("--paper-report", action="store_true", help="Print paper trading open trades, closed trades and balance.")
-    parser.add_argument("--serve-paper", action="store_true", help="Run the 5-minute paper bot loop together with Telegram push and menu polling.")
+    parser.add_argument("--serve-paper", action="store_true", help="Run the paper bot loop together with Telegram push and menu polling.")
     parser.add_argument("--interval", type=int, default=config.poll_seconds, help="Loop interval in seconds.")
     parser.add_argument(
         "--profile",
