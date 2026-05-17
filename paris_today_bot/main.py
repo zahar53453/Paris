@@ -8,14 +8,15 @@ from datetime import UTC, datetime
 
 from paris_today_bot.config import config
 from paris_today_bot.execution import CityExecutor
+from paris_today_bot.ml_probability_engine import MLProbabilityEngine
 from paris_today_bot.paper import PaperBroker, PaperReporter, PaperStore
 from paris_today_bot.polymarket_client import CityMarketClient
 from paris_today_bot.profile_loader import list_profiles, load_profile
 from paris_today_bot.runtime_log import log_runtime
 from paris_today_bot.state import StateStore
-from paris_today_bot.strategy import ProfiledTodayStrategy
 from paris_today_bot.telegram_service import PaperTelegramService, RuntimeStatus, render_cycle_notifications
 from paris_today_bot.weather_client import WeatherDataClient
+from paris_today_bot.models import StrategyDecision
 
 
 async def run_for_profile(
@@ -36,8 +37,19 @@ async def run_for_profile(
     market_client = CityMarketClient(config, profile)
     market = await market_client.fetch_today_market()
 
-    strategy = ProfiledTodayStrategy(profile)
-    decision = strategy.evaluate(weather, market)
+    probability_engine = MLProbabilityEngine()
+    probability_analysis, fair_values = await probability_engine.analyze(profile, market.markets)
+    projected_max = round(probability_analysis.expected_max_c)
+    decision = StrategyDecision(
+        projected_max=projected_max,
+        base_max=projected_max,
+        adjustment=0.0,
+        fair_values=fair_values,
+        reasons=[
+            f"ML nowcast expected max: {probability_analysis.expected_max_c:.2f}C",
+            f"Observed max so far: {probability_analysis.current_max_so_far:.2f}C",
+        ],
+    )
 
     state = StateStore(config.state_file_for_profile(profile.slug))
     executor = CityExecutor(config, state)
@@ -70,6 +82,15 @@ async def run_for_profile(
             "model_agreement_spread": weather.model_agreement_spread,
         },
         "decision": asdict(decision),
+        "ml_analysis": {
+            "expected_max_c": probability_analysis.expected_max_c,
+            "current_max_so_far": probability_analysis.current_max_so_far,
+            "valid_utc": probability_analysis.valid_utc,
+            "valid_local": probability_analysis.valid_local,
+            "raw_metar": probability_analysis.raw_metar,
+            "bucket_probabilities": probability_analysis.bucket_probabilities,
+            "probability_table": [asdict(row) for row in probability_analysis.probability_table],
+        },
         "actions": [asdict(action) for action in actions],
         "logs": logs,
     }
