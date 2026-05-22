@@ -382,16 +382,30 @@ def build_metar_updates(previous_result: dict | None, current_result: dict) -> d
 def _question_probabilities(item: dict) -> dict[str, float]:
     import re
 
-    fair_values = (item.get("decision") or {}).get("fair_values", {})
+    probability_table = ((item.get("ml_analysis") or {}).get("probability_table")) or []
+    raw_probs: dict[int, float] = {}
+    for row in probability_table:
+        try:
+            temp = int(round(float(row["temperature_c"])))
+            prob = float(row["probability"])
+        except (KeyError, TypeError, ValueError):
+            continue
+        raw_probs[temp] = raw_probs.get(temp, 0.0) + prob
+
     probabilities: dict[str, float] = {}
     for action in item.get("actions", []):
-        market_id = action.get("market_id")
-        if not market_id:
-            continue
-        probability = fair_values.get(market_id)
-        if probability is None or float(probability) <= 0:
-            continue
         question = action.get("question", "")
+        temp_match = re.search(r"\b(\d+)\s*°?C\b", question, re.IGNORECASE)
+        if not temp_match:
+            continue
+        temp_c = int(temp_match.group(1))
+        lower_q = question.lower()
+        if "or higher" in lower_q or "or above" in lower_q:
+            probability = sum(prob for temp, prob in raw_probs.items() if temp >= temp_c)
+        elif "or lower" in lower_q or "or below" in lower_q:
+            probability = sum(prob for temp, prob in raw_probs.items() if temp <= temp_c)
+        else:
+            probability = raw_probs.get(temp_c, 0.0)
         match = re.search(r"be\s+(.+?)\s+on\s+[A-Z][a-z]{2}\s+\d{1,2}\??$", question)
         label = match.group(1) if match else question
         probabilities[label] = float(probability)

@@ -22,6 +22,9 @@ MENU_RESTART = "Restart Bot"
 MENU_CLEAR = "Clear History"
 
 
+QUESTION_TEMP_RE = re.compile(r"\b(\d+)\s*°?C\b", re.IGNORECASE)
+
+
 @dataclass(slots=True)
 class RuntimeStatus:
     started_at: str | None = None
@@ -198,18 +201,21 @@ class PaperTelegramService:
         for item in results:
             profile = item.get("profile", {})
             actions = item.get("actions", [])
-            fair_values = (item.get("decision") or {}).get("fair_values", {})
             valid_utc = ((item.get("ml_analysis") or {}).get("valid_utc")) or "unknown UTC"
+            probability_map = _question_probability_map(item)
             positive_lines: list[str] = []
+            seen_labels: set[str] = set()
             for action in actions:
-                market_id = action.get("market_id")
-                if not market_id:
+                question = action.get("question", "")
+                label = self._question_label(question)
+                if not label or label in seen_labels:
                     continue
-                probability = fair_values.get(market_id)
-                if probability is None or float(probability) <= 0:
+                seen_labels.add(label)
+                probability = probability_map.get(label)
+                if probability is None or float(probability) <= 0.0:
                     continue
                 positive_lines.append(
-                    f"{self._question_label(action.get('question', 'Unknown market'))}: {float(probability) * 100:.1f}%"
+                    f"{label}: {float(probability) * 100:.1f}%"
                 )
             if not positive_lines:
                 continue
@@ -339,3 +345,55 @@ def _probability_changes_lines(
     if lines and lines[-1] == "":
         lines.pop()
     return lines
+
+
+def _question_probability_map(item: dict) -> dict[str, float]:
+    ml_analysis = item.get("ml_analysis") or {}
+    table = ml_analysis.get("probability_table") or []
+    raw_probs: dict[int, float] = {}
+    for row in table:
+        try:
+            temp = int(round(float(row["temperature_c"])))
+            prob = float(row["probability"])
+        except (KeyError, TypeError, ValueError):
+            continue
+        raw_probs[temp] = raw_probs.get(temp, 0.0) + prob
+
+    probabilities: dict[str, float] = {}
+    for action in item.get("actions", []):
+        question = action.get("question", "")
+        label = _question_label(question)
+        if not label:
+            continue
+        parsed = _parse_question_bucket(question)
+        if parsed is None:
+            continue
+        temp_c, tail = parsed
+        if tail == "or_higher":
+            probability = sum(prob for temp, prob in raw_probs.items() if temp >= temp_c)
+        elif tail == "or_lower":
+            probability = sum(prob for temp, prob in raw_probs.items() if temp <= temp_c)
+        else:
+            probability = raw_probs.get(temp_c, 0.0)
+        probabilities[label] = float(probability)
+    return probabilities
+
+
+def _parse_question_bucket(question: str) -> tuple[int, str] | None:
+    match = QUESTION_TEMP_RE.search(question)
+    if not match:
+        return None
+    temp_c = int(match.group(1))
+    lower_q = question.lower()
+    if "or higher" in lower_q or "or above" in lower_q:
+        return temp_c, "or_higher"
+    if "or lower" in lower_q or "or below" in lower_q:
+        return temp_c, "or_lower"
+    return temp_c, "exact"
+
+
+def _question_label(question: str) -> str:
+    match = re.search(r"be\s+(.+?)\s+on\s+[A-Z][a-z]{2}\s+\d{1,2}\??$", question)
+    if match:
+        return match.group(1)
+    return question
