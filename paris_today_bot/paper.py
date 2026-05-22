@@ -896,6 +896,8 @@ class PaperBroker:
             "size_usd": trade.size_usd,
             "pnl": trade.realized_pnl,
             "reason": trade.close_reason,
+            "opened_at": trade.opened_at,
+            "closed_at": trade.closed_at,
         }
 
     def _question_date(self, question: str) -> date | None:
@@ -981,6 +983,7 @@ class PaperReporter:
             lines.append(
                 f"{trade.city_name} | {trade.side} | {self._short_question(trade.question)}\n"
                 f"Entry: {trade.shares:.2f} sh @ {trade.entry_price:.3f} | Size: ${trade.size_usd:.2f}\n"
+                f"Opened: {trade.opened_at}\n"
                 f"Now: {(trade.last_price or 0.0):.3f} | Edge: {(trade.last_edge or 0.0):+.3f} | PnL: {(trade.last_unrealized_pnl or 0.0):+.2f}$\n"
             )
         return "\n".join(lines)
@@ -994,6 +997,8 @@ class PaperReporter:
         for trade in trades:
             lines.append(
                 f"{trade.city_name} | {trade.side} | {self._short_question(trade.question)}\n"
+                f"Opened: {trade.opened_at}\n"
+                f"Closed: {trade.closed_at or 'n/a'}\n"
                 f"Entry: {trade.entry_price:.3f} -> Exit: {(trade.exit_price or 0.0):.3f} | "
                 f"PnL: {(trade.realized_pnl or 0.0):+.2f}$\n"
                 f"Reason: {trade.close_reason or 'n/a'}\n"
