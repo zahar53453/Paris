@@ -109,6 +109,10 @@ OPEN_METEO_RETRY_BASE_DELAY_SECONDS = 1.0
 @dataclass(frozen=True, slots=True)
 class ModelProjectConfig:
     profile_slug: str
+    icao: str
+    latitude: float
+    longitude: float
+    timezone_name: str
     model_dir: Path
     state_path: Path
     nwp_snapshot_path: Path
@@ -238,24 +242,40 @@ def _project_map() -> dict[str, ModelProjectConfig]:
     return {
         "london_eglc_rules": ModelProjectConfig(
             "london_eglc_rules",
+            "EGLC",
+            51.5053,
+            0.05528,
+            "Europe/London",
             model_base / "eglc_max_temp_forecast",
             state_base / "eglc_max_temp_forecast_state.json",
             nwp_base / "eglc_latest_nwp_snapshot.json",
         ),
         "madrid_lemd_rules": ModelProjectConfig(
             "madrid_lemd_rules",
+            "LEMD",
+            40.4722,
+            -3.5608,
+            "Europe/Madrid",
             model_base / "lemd_max_temp_forecast",
             state_base / "lemd_max_temp_forecast_state.json",
             nwp_base / "lemd_latest_nwp_snapshot.json",
         ),
         "munich_eddm_rules": ModelProjectConfig(
             "munich_eddm_rules",
+            "EDDM",
+            48.3538,
+            11.7861,
+            "Europe/Berlin",
             model_base / "eddm_max_temp_forecast",
             state_base / "eddm_max_temp_forecast_state.json",
             nwp_base / "eddm_latest_nwp_snapshot.json",
         ),
         "paris_lfpb_rules": ModelProjectConfig(
             "paris_lfpb_rules",
+            "LFPB",
+            48.9694,
+            2.44139,
+            "Europe/Paris",
             model_base / "lfpb_max_temp_forecast",
             state_base / "lfpb_max_temp_forecast_state.json",
             nwp_base / "lfpb_latest_nwp_snapshot.json",
@@ -587,9 +607,9 @@ def fetch_recent_metars(profile: CityProfile, session: requests.Session, hours: 
     raise RuntimeError("Unexpected recent METAR payload structure.")
 
 
-def add_time_features(frame: pd.DataFrame, profile: CityProfile) -> pd.DataFrame:
+def add_time_features(frame: pd.DataFrame, geo: CityProfile | ModelProjectConfig) -> pd.DataFrame:
     df = frame.copy()
-    local_tz = ZoneInfo(profile.timezone_name)
+    local_tz = ZoneInfo(geo.timezone_name)
     df["valid"] = pd.to_datetime(df["valid"], utc=True, errors="coerce")
     df["local_datetime"] = df["valid"].dt.tz_convert(local_tz)
     df["local_date"] = df["local_datetime"].dt.date
@@ -606,19 +626,19 @@ def add_time_features(frame: pd.DataFrame, profile: CityProfile) -> pd.DataFrame
     return df
 
 
-def add_solar_features(frame: pd.DataFrame, profile: CityProfile) -> pd.DataFrame:
+def add_solar_features(frame: pd.DataFrame, geo: CityProfile | ModelProjectConfig) -> pd.DataFrame:
     df = frame.copy()
     site = location.Location(
-        latitude=profile.latitude,
-        longitude=profile.longitude,
-        tz=profile.timezone_name,
-        name=profile.icao,
+        latitude=geo.latitude,
+        longitude=geo.longitude,
+        tz=geo.timezone_name,
+        name=geo.icao,
     )
     local_times = pd.DatetimeIndex(df["local_datetime"])
     solar = solarposition.get_solarposition(
         time=local_times,
-        latitude=profile.latitude,
-        longitude=profile.longitude,
+        latitude=geo.latitude,
+        longitude=geo.longitude,
     )
     df["solar_elevation"] = solar["elevation"].to_numpy()
     df["is_daytime"] = (df["solar_elevation"] > 0.0).astype(int)
@@ -640,7 +660,7 @@ def build_feature_row(
     temp_trend_30m: float | None,
     temp_trend_1h: float | None,
     temp_trend_3h: float | None,
-    profile: CityProfile,
+    geo: CityProfile | ModelProjectConfig,
     delta_from_current_max_c: float | None = None,
     is_temp_below_current_max_now: int = 0,
     minutes_since_last_max_observation: float | None = None,
@@ -692,8 +712,8 @@ def build_feature_row(
     for category in PRESENT_WEATHER_CATEGORIES:
         base[f"wx_{category}"] = parsed.weather_flags.get(category, 0)
     frame = pd.DataFrame([base])
-    frame = add_time_features(frame, profile)
-    frame = add_solar_features(frame, profile)
+    frame = add_time_features(frame, geo)
+    frame = add_solar_features(frame, geo)
     return frame.drop(columns=["sunrise", "sunset"], errors="ignore")
 
 
@@ -725,7 +745,7 @@ def initialize_or_roll_state(state: dict[str, Any], local_date: datetime.date) -
 def bootstrap_state_from_recent_history(
     state: dict[str, Any],
     latest_valid: pd.Timestamp,
-    profile: CityProfile,
+    profile: CityProfile | ModelProjectConfig,
     session: requests.Session,
 ) -> dict[str, Any]:
     local_tz = ZoneInfo(profile.timezone_name)
@@ -836,7 +856,7 @@ def derive_peak_state_features(
 def update_state_with_observation(
     state: dict[str, Any],
     parsed: ParsedRealtimeMetar,
-    profile: CityProfile,
+    profile: CityProfile | ModelProjectConfig,
 ) -> tuple[dict[str, Any], float, float | None, float | None, float | None, dict[str, float | int | None]]:
     local_tz = ZoneInfo(profile.timezone_name)
     local_time = parsed.valid.tz_convert(local_tz)
@@ -1108,7 +1128,7 @@ def fetch_single_nwp_model_summary(
     session: requests.Session,
     model_config: dict[str, str],
     current_local: pd.Timestamp,
-    profile: CityProfile,
+    profile: CityProfile | ModelProjectConfig,
 ) -> NwpModelSummary:
     payload = _request_open_meteo_json(
         session=session,
@@ -1298,7 +1318,7 @@ def load_nwp_snapshot(path: Path) -> dict[str, Any] | None:
 def fetch_nwp_ensemble_summary(
     *,
     current_local: pd.Timestamp,
-    profile: CityProfile,
+    profile: CityProfile | ModelProjectConfig,
     snapshot_path: Path,
     session: requests.Session,
 ) -> dict[str, Any] | None:
@@ -1439,7 +1459,7 @@ class MLProbabilityEngine:
         with requests.Session() as session:
             raw_payload = fetch_latest_metar(profile, session)
             parsed = parse_metar_payload(raw_payload, profile)
-            state = bootstrap_state_from_recent_history(state, parsed.valid, profile, session)
+            state = bootstrap_state_from_recent_history(state, parsed.valid, project, session)
             (
                 state,
                 current_max_so_far,
@@ -1447,12 +1467,12 @@ class MLProbabilityEngine:
                 temp_trend_1h,
                 temp_trend_3h,
                 peak_state_features,
-            ) = update_state_with_observation(state, parsed, profile)
-            local_date_iso = parsed.valid.tz_convert(ZoneInfo(profile.timezone_name)).date().isoformat()
+            ) = update_state_with_observation(state, parsed, project)
+            local_date_iso = parsed.valid.tz_convert(ZoneInfo(project.timezone_name)).date().isoformat()
             prev_day_max_c, prev_day_min_c = load_previous_day_context(project, local_date_iso)
             nwp_summary = fetch_nwp_ensemble_summary(
-                current_local=parsed.valid.tz_convert(ZoneInfo(profile.timezone_name)),
-                profile=profile,
+                current_local=parsed.valid.tz_convert(ZoneInfo(project.timezone_name)),
+                profile=project,
                 snapshot_path=project.nwp_snapshot_path,
                 session=session,
             )
@@ -1463,7 +1483,7 @@ class MLProbabilityEngine:
                 temp_trend_30m=temp_trend_30m,
                 temp_trend_1h=temp_trend_1h,
                 temp_trend_3h=temp_trend_3h,
-                profile=profile,
+                geo=project,
                 delta_from_current_max_c=peak_state_features.get("delta_from_current_max_c"),
                 is_temp_below_current_max_now=int(peak_state_features.get("is_temp_below_current_max_now", 0)),
                 minutes_since_last_max_observation=peak_state_features.get("minutes_since_last_max_observation"),
